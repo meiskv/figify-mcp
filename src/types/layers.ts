@@ -15,6 +15,23 @@ export interface FigmaFill {
   opacity?: number;
 }
 
+export interface FigmaStroke {
+  type: "SOLID";
+  color: FigmaColor;
+}
+
+export interface FigmaDropShadow {
+  type: "DROP_SHADOW";
+  color: FigmaColor;
+  offset: { x: number; y: number };
+  radius: number;
+  spread?: number;
+  visible: boolean;
+  blendMode: "NORMAL";
+}
+
+export type FigmaEffect = FigmaDropShadow;
+
 export interface BaseLayer {
   id: string;
   name: string;
@@ -30,6 +47,9 @@ export interface FrameLayer extends BaseLayer {
   children: Layer[];
   fills?: FigmaFill[];
   cornerRadius?: number;
+  strokes?: FigmaStroke[];
+  strokeWeight?: number;
+  effects?: FigmaEffect[];
 }
 
 export interface TextLayer extends BaseLayer {
@@ -47,6 +67,9 @@ export interface RectangleLayer extends BaseLayer {
   type: "RECTANGLE";
   fills?: FigmaFill[];
   cornerRadius?: number;
+  strokes?: FigmaStroke[];
+  strokeWeight?: number;
+  effects?: FigmaEffect[];
 }
 
 export type Layer = FrameLayer | TextLayer | RectangleLayer;

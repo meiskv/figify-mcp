@@ -36,10 +36,15 @@ export const ImportPageAsLayersInputSchema = z.object({
     .describe("Next.js project root path. Auto-detected if not provided."),
 });
 
+export const DebugExtractionInputSchema = z.object({
+  url: z.string().describe("URL to extract DOM from"),
+});
+
 export type ImportPageInput = z.infer<typeof ImportPageInputSchema>;
 export type CheckConnectionInput = z.infer<typeof CheckConnectionInputSchema>;
 export type CaptureScreenshotInput = z.infer<typeof CaptureScreenshotInputSchema>;
 export type ImportPageAsLayersInput = z.infer<typeof ImportPageAsLayersInputSchema>;
+export type DebugExtractionInput = z.infer<typeof DebugExtractionInputSchema>;
 
 export interface ToolDefinition {
   name: string;
@@ -71,6 +76,12 @@ export const TOOLS: ToolDefinition[] = [
     description:
       "Capture screenshots of a URL at specified viewports without sending to Figma. Useful for testing.",
     inputSchema: CaptureScreenshotInputSchema,
+  },
+  {
+    name: "debug_extraction",
+    description:
+      "Debug tool: Extract DOM from a URL and return the raw layer data with styles. Shows what colors, borders, shadows are being captured.",
+    inputSchema: DebugExtractionInputSchema,
   },
 ];
 

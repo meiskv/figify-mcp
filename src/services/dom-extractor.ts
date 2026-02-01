@@ -1,5 +1,5 @@
 import type { Page } from "playwright";
-import type { FigmaColor, FigmaFill, FrameLayer, Layer, TextLayer } from "../types/layers.js";
+import type { FigmaFill, FrameLayer, Layer, TextLayer } from "../types/layers.js";
 
 // DOM extraction script that runs in browser context
 const EXTRACTION_SCRIPT = `
@@ -18,15 +18,118 @@ const EXTRACTION_SCRIPT = `
       return null;
     }
 
-    // Parse rgb/rgba
-    const rgbaMatch = colorStr.match(/rgba?\\(([\\d.]+),\\s*([\\d.]+),\\s*([\\d.]+)(?:,\\s*([\\d.]+))?\\)/);
-    if (rgbaMatch) {
+    // Parse modern CSS format: rgb(255 255 255 / 0.1) or rgb(255 255 255)
+    const modernMatch = colorStr.match(/rgba?\\(([\\d.]+)\\s+([\\d.]+)\\s+([\\d.]+)(?:\\s*\\/\\s*([\\d.]+))?\\)/);
+    if (modernMatch) {
       return {
-        r: parseInt(rgbaMatch[1]) / 255,
-        g: parseInt(rgbaMatch[2]) / 255,
-        b: parseInt(rgbaMatch[3]) / 255,
-        a: rgbaMatch[4] !== undefined ? parseFloat(rgbaMatch[4]) : 1
+        r: parseFloat(modernMatch[1]) / 255,
+        g: parseFloat(modernMatch[2]) / 255,
+        b: parseFloat(modernMatch[3]) / 255,
+        a: modernMatch[4] !== undefined ? parseFloat(modernMatch[4]) : 1
       };
+    }
+
+    // Parse legacy format: rgba(255, 255, 255, 0.1) or rgb(255, 255, 255)
+    const legacyMatch = colorStr.match(/rgba?\\(([\\d.]+),\\s*([\\d.]+),\\s*([\\d.]+)(?:,\\s*([\\d.]+))?\\)/);
+    if (legacyMatch) {
+      return {
+        r: parseFloat(legacyMatch[1]) / 255,
+        g: parseFloat(legacyMatch[2]) / 255,
+        b: parseFloat(legacyMatch[3]) / 255,
+        a: legacyMatch[4] !== undefined ? parseFloat(legacyMatch[4]) : 1
+      };
+    }
+
+    // Parse oklab format: oklab(0.999 0.0001 0.0001 / 0.1) - Tailwind CSS v3+
+    const oklabMatch = colorStr.match(/oklab\\(([\\d.]+)\\s+([\\d.-]+)\\s+([\\d.-]+)(?:\\s*\\/\\s*([\\d.]+))?\\)/);
+    if (oklabMatch) {
+      // Convert oklab to sRGB (simplified approximation)
+      const L = parseFloat(oklabMatch[1]);
+      const a = parseFloat(oklabMatch[2]);
+      const b = parseFloat(oklabMatch[3]);
+      const alpha = oklabMatch[4] !== undefined ? parseFloat(oklabMatch[4]) : 1;
+
+      // Approximate conversion: oklab L=1 is white, L=0 is black
+      // For simplicity, use L as grayscale when a,b are near zero
+      // This handles most Tailwind colors reasonably
+      const l_ = L + 0.3963377774 * a + 0.2158037573 * b;
+      const m_ = L - 0.1055613458 * a - 0.0638541728 * b;
+      const s_ = L - 0.0894841775 * a - 1.2914855480 * b;
+
+      const l = l_ * l_ * l_;
+      const m = m_ * m_ * m_;
+      const s = s_ * s_ * s_;
+
+      const r = Math.max(0, Math.min(1, 4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * s));
+      const g = Math.max(0, Math.min(1, -1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s));
+      const bVal = Math.max(0, Math.min(1, -0.0041960863 * l - 0.7034186147 * m + 1.7076147010 * s));
+
+      return { r, g, b: bVal, a: alpha };
+    }
+
+    // Parse lab format: lab(43.0295 75.21 -86.5669) - Tailwind purple, etc.
+    const labMatch = colorStr.match(/lab\\(([\\d.]+)\\s+([\\d.-]+)\\s+([\\d.-]+)(?:\\s*\\/\\s*([\\d.]+))?\\)/);
+    if (labMatch) {
+      // Convert CIELAB to sRGB
+      const L = parseFloat(labMatch[1]);
+      const a = parseFloat(labMatch[2]);
+      const bLab = parseFloat(labMatch[3]);
+      const alpha = labMatch[4] !== undefined ? parseFloat(labMatch[4]) : 1;
+
+      // Lab to XYZ
+      const fy = (L + 16) / 116;
+      const fx = a / 500 + fy;
+      const fz = fy - bLab / 200;
+
+      const xr = fx > 0.206897 ? fx * fx * fx : (fx - 16/116) / 7.787;
+      const yr = L > 8 ? Math.pow((L + 16) / 116, 3) : L / 903.3;
+      const zr = fz > 0.206897 ? fz * fz * fz : (fz - 16/116) / 7.787;
+
+      // D65 white point
+      const X = xr * 0.95047;
+      const Y = yr * 1.0;
+      const Z = zr * 1.08883;
+
+      // XYZ to sRGB
+      let r = 3.2406 * X - 1.5372 * Y - 0.4986 * Z;
+      let g = -0.9689 * X + 1.8758 * Y + 0.0415 * Z;
+      let bVal = 0.0557 * X + 0.2040 * Y + 1.0570 * Z;
+
+      // Gamma correction
+      const gamma = (c) => c > 0.0031308 ? 1.055 * Math.pow(c, 1/2.4) - 0.055 : 12.92 * c;
+      r = Math.max(0, Math.min(1, gamma(r)));
+      g = Math.max(0, Math.min(1, gamma(g)));
+      bVal = Math.max(0, Math.min(1, gamma(bVal)));
+
+      return { r, g, b: bVal, a: alpha };
+    }
+
+    // Parse hex colors: #fff, #ffffff, #ffffffff
+    const hexMatch = colorStr.match(/^#([a-fA-F0-9]{3,8})$/);
+    if (hexMatch) {
+      const hex = hexMatch[1];
+      if (hex.length === 3) {
+        return {
+          r: parseInt(hex[0] + hex[0], 16) / 255,
+          g: parseInt(hex[1] + hex[1], 16) / 255,
+          b: parseInt(hex[2] + hex[2], 16) / 255,
+          a: 1
+        };
+      } else if (hex.length === 6) {
+        return {
+          r: parseInt(hex.slice(0, 2), 16) / 255,
+          g: parseInt(hex.slice(2, 4), 16) / 255,
+          b: parseInt(hex.slice(4, 6), 16) / 255,
+          a: 1
+        };
+      } else if (hex.length === 8) {
+        return {
+          r: parseInt(hex.slice(0, 2), 16) / 255,
+          g: parseInt(hex.slice(2, 4), 16) / 255,
+          b: parseInt(hex.slice(4, 6), 16) / 255,
+          a: parseInt(hex.slice(6, 8), 16) / 255
+        };
+      }
     }
 
     return null;
@@ -67,7 +170,95 @@ const EXTRACTION_SCRIPT = `
     if (bgColor && bgColor.a > 0) {
       return [{ type: 'SOLID', color: bgColor, opacity: bgColor.a }];
     }
+
+    // Try to extract first color from gradient as fallback
+    const bgImage = styles.backgroundImage;
+    if (bgImage && bgImage !== 'none' && bgImage.includes('gradient')) {
+      // Extract colors from gradient - try multiple formats
+      // Match rgb(), rgba(), lab(), oklab(), and hex colors
+      const colorMatches = bgImage.match(/rgba?\\([^)]+\\)|lab\\([^)]+\\)|oklab\\([^)]+\\)|#[a-fA-F0-9]{3,8}/g);
+      if (colorMatches && colorMatches.length > 0) {
+        // Try to parse the first color we find
+        for (const colorStr of colorMatches) {
+          const gradientColor = parseColor(colorStr);
+          if (gradientColor && gradientColor.a > 0) {
+            return [{ type: 'SOLID', color: gradientColor, opacity: gradientColor.a }];
+          }
+        }
+      }
+    }
+
     return [];
+  }
+
+  function parseBorder(styles) {
+    // Parse border - use borderTopWidth as representative
+    const borderWidth = parseFloat(styles.borderTopWidth) || 0;
+    if (borderWidth === 0) return { strokes: [], strokeWeight: 0 };
+
+    const borderColor = parseColor(styles.borderTopColor);
+    if (!borderColor) return { strokes: [], strokeWeight: 0 };
+
+    return {
+      strokes: [{ type: 'SOLID', color: borderColor }],
+      strokeWeight: borderWidth
+    };
+  }
+
+  function parseBoxShadow(styles) {
+    const boxShadow = styles.boxShadow;
+    if (!boxShadow || boxShadow === 'none') return [];
+
+    const effects = [];
+
+    // Split multiple shadows by comma (but not commas inside rgba)
+    const shadows = boxShadow.split(/,(?![^(]*\\))/);
+
+    for (const shadow of shadows) {
+      const trimmed = shadow.trim();
+      if (!trimmed) continue;
+
+      // Extract color (can be at start or end)
+      let color = null;
+      let rest = trimmed;
+
+      // Try to find rgba/rgb color
+      const rgbMatch = trimmed.match(/rgba?\\([^)]+\\)/);
+      if (rgbMatch) {
+        color = parseColor(rgbMatch[0]);
+        rest = trimmed.replace(rgbMatch[0], '').trim();
+      } else {
+        // Try hex color
+        const hexMatch = trimmed.match(/#[a-fA-F0-9]{3,8}/);
+        if (hexMatch) {
+          color = parseColor(hexMatch[0]);
+          rest = trimmed.replace(hexMatch[0], '').trim();
+        }
+      }
+
+      if (!color) continue;
+
+      // Parse the numeric values (offsetX offsetY blur spread?)
+      const values = rest.match(/-?[\\d.]+px/g);
+      if (!values || values.length < 2) continue;
+
+      const offsetX = parseFloat(values[0]) || 0;
+      const offsetY = parseFloat(values[1]) || 0;
+      const blur = values[2] ? parseFloat(values[2]) : 0;
+      const spread = values[3] ? parseFloat(values[3]) : 0;
+
+      effects.push({
+        type: 'DROP_SHADOW',
+        color: color,
+        offset: { x: offsetX, y: offsetY },
+        radius: blur,
+        spread: spread,
+        visible: true,
+        blendMode: 'NORMAL'
+      });
+    }
+
+    return effects;
   }
 
   function getElementName(el) {
@@ -130,6 +321,8 @@ const EXTRACTION_SCRIPT = `
     // Container element (FRAME)
     const fills = parseBackground(styles);
     const borderRadius = parseFloat(styles.borderRadius) || 0;
+    const border = parseBorder(styles);
+    const effects = parseBoxShadow(styles);
 
     // Extract children
     const children = [];
@@ -141,7 +334,8 @@ const EXTRACTION_SCRIPT = `
     }
 
     // Skip empty frames with no visual content
-    if (children.length === 0 && fills.length === 0 && borderRadius === 0) {
+    const hasVisualContent = children.length > 0 || fills.length > 0 || borderRadius > 0 || border.strokeWeight > 0 || effects.length > 0;
+    if (!hasVisualContent) {
       return null;
     }
 
@@ -150,7 +344,10 @@ const EXTRACTION_SCRIPT = `
       type: 'FRAME',
       children,
       fills,
-      cornerRadius: borderRadius > 0 ? borderRadius : undefined
+      cornerRadius: borderRadius > 0 ? borderRadius : undefined,
+      strokes: border.strokes.length > 0 ? border.strokes : undefined,
+      strokeWeight: border.strokeWeight > 0 ? border.strokeWeight : undefined,
+      effects: effects.length > 0 ? effects : undefined
     };
   }
 
@@ -194,7 +391,44 @@ export class DOMExtractor {
     const layerCount = this.countLayers(rootLayer);
     console.error(`[DOMExtractor] Extracted ${layerCount} layers`);
 
+    // Debug: Log sample of extracted data to see if styles are captured
+    this.debugLogLayers(rootLayer, 0, 3);
+
     return rootLayer;
+  }
+
+  /**
+   * Debug: Log layer details to see what's being extracted
+   */
+  private debugLogLayers(layer: Layer, depth: number, maxDepth: number): void {
+    if (depth > maxDepth) return;
+
+    const indent = "  ".repeat(depth);
+    // Use any to access optional properties that exist on multiple types
+    // biome-ignore lint/suspicious/noExplicitAny: Debug logging needs flexible access
+    const anyLayer = layer as any;
+    const fills = anyLayer.fills as FigmaFill[] | undefined;
+    const strokes = anyLayer.strokes;
+    const effects = anyLayer.effects;
+
+    console.error(
+      `${indent}[Layer] ${layer.name} (${layer.type}) - fills: ${fills?.length ?? 0}, strokes: ${strokes?.length ?? 0}, effects: ${effects?.length ?? 0}`
+    );
+
+    if (layer.type === "TEXT") {
+      const textLayer = layer as TextLayer;
+      console.error(`${indent}  text color: r=${textLayer.textColor?.r?.toFixed(2)}, g=${textLayer.textColor?.g?.toFixed(2)}, b=${textLayer.textColor?.b?.toFixed(2)}`);
+    }
+
+    if (fills && fills.length > 0) {
+      console.error(`${indent}  fill: r=${fills[0].color.r?.toFixed(2)}, g=${fills[0].color.g?.toFixed(2)}, b=${fills[0].color.b?.toFixed(2)}, a=${fills[0].color.a?.toFixed(2)}`);
+    }
+
+    if (layer.type === "FRAME" && (layer as FrameLayer).children) {
+      for (const child of (layer as FrameLayer).children) {
+        this.debugLogLayers(child, depth + 1, maxDepth);
+      }
+    }
   }
 
   /**

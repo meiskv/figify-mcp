@@ -20,6 +20,21 @@ interface FigmaFill {
   opacity?: number;
 }
 
+interface FigmaStroke {
+  type: "SOLID";
+  color: FigmaColor;
+}
+
+interface FigmaDropShadow {
+  type: "DROP_SHADOW";
+  color: FigmaColor;
+  offset: { x: number; y: number };
+  radius: number;
+  spread?: number;
+  visible: boolean;
+  blendMode: "NORMAL";
+}
+
 interface BaseLayer {
   id: string;
   name: string;
@@ -35,6 +50,9 @@ interface FrameLayer extends BaseLayer {
   children: Layer[];
   fills?: FigmaFill[];
   cornerRadius?: number;
+  strokes?: FigmaStroke[];
+  strokeWeight?: number;
+  effects?: FigmaDropShadow[];
 }
 
 interface TextLayer extends BaseLayer {
@@ -51,6 +69,9 @@ interface RectangleLayer extends BaseLayer {
   type: "RECTANGLE";
   fills?: FigmaFill[];
   cornerRadius?: number;
+  strokes?: FigmaStroke[];
+  strokeWeight?: number;
+  effects?: FigmaDropShadow[];
 }
 
 type Layer = FrameLayer | TextLayer | RectangleLayer;
@@ -303,6 +324,28 @@ async function createNode(layer: Layer, parent: FrameNode): Promise<number> {
         rect.cornerRadius = rectLayer.cornerRadius;
       }
 
+      // Apply strokes (borders)
+      if (rectLayer.strokes && rectLayer.strokes.length > 0) {
+        rect.strokes = rectLayer.strokes.map((stroke) => ({
+          type: "SOLID" as const,
+          color: { r: stroke.color.r, g: stroke.color.g, b: stroke.color.b },
+        }));
+        rect.strokeWeight = rectLayer.strokeWeight ?? 1;
+      }
+
+      // Apply effects (shadows)
+      if (rectLayer.effects && rectLayer.effects.length > 0) {
+        rect.effects = rectLayer.effects.map((effect) => ({
+          type: "DROP_SHADOW" as const,
+          color: { r: effect.color.r, g: effect.color.g, b: effect.color.b, a: effect.color.a ?? 0.25 },
+          offset: { x: effect.offset.x, y: effect.offset.y },
+          radius: effect.radius,
+          spread: effect.spread ?? 0,
+          visible: true,
+          blendMode: "NORMAL" as const,
+        }));
+      }
+
       parent.appendChild(rect);
       count = 1;
       break;
@@ -329,6 +372,28 @@ async function createNode(layer: Layer, parent: FrameNode): Promise<number> {
 
       if (frameLayer.cornerRadius) {
         frame.cornerRadius = frameLayer.cornerRadius;
+      }
+
+      // Apply strokes (borders)
+      if (frameLayer.strokes && frameLayer.strokes.length > 0) {
+        frame.strokes = frameLayer.strokes.map((stroke) => ({
+          type: "SOLID" as const,
+          color: { r: stroke.color.r, g: stroke.color.g, b: stroke.color.b },
+        }));
+        frame.strokeWeight = frameLayer.strokeWeight ?? 1;
+      }
+
+      // Apply effects (shadows)
+      if (frameLayer.effects && frameLayer.effects.length > 0) {
+        frame.effects = frameLayer.effects.map((effect) => ({
+          type: "DROP_SHADOW" as const,
+          color: { r: effect.color.r, g: effect.color.g, b: effect.color.b, a: effect.color.a ?? 0.25 },
+          offset: { x: effect.offset.x, y: effect.offset.y },
+          radius: effect.radius,
+          spread: effect.spread ?? 0,
+          visible: true,
+          blendMode: "NORMAL" as const,
+        }));
       }
 
       // Recursively create children

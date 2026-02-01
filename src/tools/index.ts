@@ -1,6 +1,8 @@
 import {
   type CaptureScreenshotInput,
   CaptureScreenshotInputSchema,
+  type DebugExtractionInput,
+  DebugExtractionInputSchema,
   type ImportPageAsLayersInput,
   ImportPageAsLayersInputSchema,
   type ImportPageInput,
@@ -46,6 +48,8 @@ export async function handleToolCall(
       return handleCheckConnection(context);
     case "capture_screenshot":
       return handleCaptureScreenshot(args as CaptureScreenshotInput, context);
+    case "debug_extraction":
+      return handleDebugExtraction(args as DebugExtractionInput, context);
     default:
       return {
         content: [{ type: "text", text: `Unknown tool: ${name}` }],
@@ -237,6 +241,80 @@ async function handleCaptureScreenshot(
       isError: true,
     };
   }
+}
+
+async function handleDebugExtraction(
+  input: DebugExtractionInput,
+  context: ToolContext,
+): Promise<ToolResult> {
+  const parsed = DebugExtractionInputSchema.safeParse(input);
+  if (!parsed.success) {
+    return {
+      content: [{ type: "text", text: `Invalid input: ${parsed.error.message}` }],
+      isError: true,
+    };
+  }
+
+  const { url } = parsed.data;
+
+  try {
+    const { layerTree } = await context.screenshotService.captureWithLayers(
+      url,
+      "desktop",
+      "debug",
+    );
+
+    // Summarize the layer data
+    const summary = summarizeLayers(layerTree.rootLayer, 0, 5);
+
+    return {
+      content: [
+        {
+          type: "text",
+          text: `DOM Extraction Debug for ${url}\n\nLayer Tree (max depth 5):\n${summary}\n\nRoot layer dimensions: ${layerTree.width}x${layerTree.height}`,
+        },
+      ],
+    };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return {
+      content: [{ type: "text", text: `Error extracting DOM: ${message}` }],
+      isError: true,
+    };
+  }
+}
+
+// biome-ignore lint/suspicious/noExplicitAny: Need flexible access for debug output
+function summarizeLayers(layer: any, depth: number, maxDepth: number): string {
+  if (depth > maxDepth) return "";
+
+  const indent = "  ".repeat(depth);
+  const fills = layer.fills?.length ?? 0;
+  const strokes = layer.strokes?.length ?? 0;
+  const effects = layer.effects?.length ?? 0;
+
+  let line = `${indent}${layer.name} (${layer.type})`;
+
+  if (layer.type === "TEXT") {
+    const tc = layer.textColor;
+    line += ` - text: "${layer.characters?.slice(0, 20)}..." color: rgb(${(tc?.r * 255).toFixed(0)}, ${(tc?.g * 255).toFixed(0)}, ${(tc?.b * 255).toFixed(0)})`;
+  } else {
+    line += ` - fills: ${fills}, strokes: ${strokes}, effects: ${effects}`;
+    if (fills > 0 && layer.fills[0]?.color) {
+      const c = layer.fills[0].color;
+      line += ` [fill: rgba(${(c.r * 255).toFixed(0)}, ${(c.g * 255).toFixed(0)}, ${(c.b * 255).toFixed(0)}, ${c.a?.toFixed(2) ?? 1})]`;
+    }
+  }
+
+  let result = line + "\n";
+
+  if (layer.children) {
+    for (const child of layer.children) {
+      result += summarizeLayers(child, depth + 1, maxDepth);
+    }
+  }
+
+  return result;
 }
 
 function extractPageName(source: string): string {
