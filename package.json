@@ -1,23 +1,45 @@
 {
   "name": "figify-mcp",
   "version": "1.0.0",
-  "description": "MCP server that converts Next.js pages to Figma designs",
+  "description": "MCP server that converts Next.js pages to Figma designs - Code to Figma powered by Claude",
   "type": "module",
   "main": "dist/index.js",
   "bin": {
-    "figify-mcp": "./dist/index.js"
+    "figify-mcp": "./dist/cli.js"
   },
+  "files": ["dist", "figma-plugin"],
   "scripts": {
-    "dev": "tsx watch src/index.ts",
+    "dev": "tsx watch src/cli.ts",
     "build": "tsc",
-    "start": "node dist/index.js",
+    "start": "node dist/cli.js",
+    "server": "node dist/index.js",
     "lint": "biome check .",
     "format": "biome format --write .",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "prepublishOnly": "npm run build",
+    "postinstall": "npx playwright install chromium || true"
   },
-  "keywords": ["mcp", "figma", "nextjs", "design", "screenshot"],
+  "keywords": [
+    "mcp",
+    "figma",
+    "nextjs",
+    "design",
+    "screenshot",
+    "claude",
+    "anthropic",
+    "code-to-design",
+    "design-tools"
+  ],
   "author": "",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/user/figify-mcp.git"
+  },
+  "homepage": "https://github.com/user/figify-mcp#readme",
+  "bugs": {
+    "url": "https://github.com/user/figify-mcp/issues"
+  },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.0.0",
     "playwright": "^1.40.0",

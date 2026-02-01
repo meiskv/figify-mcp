@@ -1,5 +1,3 @@
-#!/usr/bin/env node
-
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { CallToolRequestSchema, ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
@@ -8,7 +6,7 @@ import { PageRenderer } from "./services/page-renderer.js";
 import { ScreenshotService } from "./services/screenshot-service.js";
 import { type ToolContext, getToolDefinitions, handleToolCall } from "./tools/index.js";
 
-async function main() {
+export async function main() {
   console.error("[figify-mcp] Starting MCP server");
 
   // Initialize services
