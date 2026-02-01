@@ -260,6 +260,9 @@
           case "CREATE_FRAME":
             handleCreateFrame(message);
             break;
+          case "CREATE_LAYERS":
+            handleCreateLayers(message);
+            break;
           case "PONG":
             log("Ping successful", "success");
             break;
@@ -288,6 +291,26 @@
         );
       }
 
+      function handleCreateLayers(message) {
+        const { id, payload } = message;
+        const { name, layers } = payload;
+
+        log(`Creating layers: ${name} with ${layers.length} viewport(s)`, "info");
+
+        // Send to Figma plugin code
+        parent.postMessage(
+          {
+            pluginMessage: {
+              type: "CREATE_LAYERS",
+              id,
+              name,
+              layers,
+            },
+          },
+          "*"
+        );
+      }
+
       // Receive messages from Figma plugin code
       window.onmessage = (event) => {
         const msg = event.data.pluginMessage;
@@ -305,6 +328,23 @@
                 payload: {
                   frameId: msg.frameId,
                   success: true,
+                },
+              })
+            );
+          }
+        } else if (msg.type === "LAYERS_CREATED") {
+          log(`Layers created: ${msg.frameId} (${msg.layersCreated} layers)`, "success");
+
+          // Send response back to MCP server
+          if (ws && ws.readyState === WebSocket.OPEN) {
+            ws.send(
+              JSON.stringify({
+                id: msg.id,
+                type: "LAYERS_CREATED",
+                payload: {
+                  frameId: msg.frameId,
+                  success: true,
+                  layersCreated: msg.layersCreated,
                 },
               })
             );

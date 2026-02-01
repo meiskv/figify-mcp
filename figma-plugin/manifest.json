@@ -9,7 +9,7 @@
   "editorType": ["figma"],
   "documentAccess": "dynamic-page",
   "networkAccess": {
-    "allowedDomains": ["localhost"],
+    "allowedDomains": ["http://localhost:19407", "ws://localhost:19407"],
     "reasoning": "Required to connect to the local MCP server via WebSocket"
   }
 }

@@ -43,3 +43,18 @@ export interface DevServerInfo {
 }
 
 export type ViewportType = "desktop" | "mobile";
+
+// Re-export layer types
+export type {
+  BaseLayer,
+  CreateLayersPayload,
+  FigmaColor,
+  FigmaFill,
+  FigmaLayerTree,
+  FrameLayer,
+  Layer,
+  LayersCreatedPayload,
+  LayerType,
+  RectangleLayer,
+  TextLayer,
+} from "./layers.js";
