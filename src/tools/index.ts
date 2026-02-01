@@ -1,6 +1,8 @@
 import {
   type CaptureScreenshotInput,
   CaptureScreenshotInputSchema,
+  type ImportPageAsLayersInput,
+  ImportPageAsLayersInputSchema,
   type ImportPageInput,
   ImportPageInputSchema,
   TOOLS,
@@ -8,7 +10,7 @@ import {
 import type { FigmaBridge } from "../services/figma-bridge.js";
 import type { PageRenderer } from "../services/page-renderer.js";
 import type { ScreenshotService } from "../services/screenshot-service.js";
-import type { Screenshot, ViewportType } from "../types/index.js";
+import type { FigmaLayerTree, Screenshot, ViewportType } from "../types/index.js";
 import { zodToJsonSchema } from "../utils/zod-to-json-schema.js";
 
 export interface ToolContext {
@@ -38,6 +40,8 @@ export async function handleToolCall(
   switch (name) {
     case "import_page":
       return handleImportPage(args as ImportPageInput, context);
+    case "import_page_as_layers":
+      return handleImportPageAsLayers(args as ImportPageAsLayersInput, context);
     case "check_figma_connection":
       return handleCheckConnection(context);
     case "capture_screenshot":
@@ -108,6 +112,76 @@ async function handleImportPage(input: ImportPageInput, context: ToolContext): P
     const message = error instanceof Error ? error.message : String(error);
     return {
       content: [{ type: "text", text: `Error importing page: ${message}` }],
+      isError: true,
+    };
+  }
+}
+
+async function handleImportPageAsLayers(
+  input: ImportPageAsLayersInput,
+  context: ToolContext,
+): Promise<ToolResult> {
+  const parsed = ImportPageAsLayersInputSchema.safeParse(input);
+  if (!parsed.success) {
+    return {
+      content: [{ type: "text", text: `Invalid input: ${parsed.error.message}` }],
+      isError: true,
+    };
+  }
+
+  const { source, viewports, projectPath } = parsed.data;
+
+  // Check Figma connection first
+  if (!context.figmaBridge.isConnected()) {
+    return {
+      content: [
+        {
+          type: "text",
+          text: "Figma plugin is not connected. Please open Figma and run the figify-mcp plugin first.",
+        },
+      ],
+      isError: true,
+    };
+  }
+
+  try {
+    // Resolve URL from source
+    const url = await context.pageRenderer.resolveUrl(source, projectPath);
+    const pageName = extractPageName(source);
+
+    // Capture with layers for each viewport
+    const layerTrees: FigmaLayerTree[] = [];
+    for (const viewport of viewports as ViewportType[]) {
+      const { layerTree } = await context.screenshotService.captureWithLayers(
+        url,
+        viewport,
+        pageName,
+      );
+      layerTrees.push(layerTree);
+    }
+
+    // Send layers to Figma
+    const result = await context.figmaBridge.createLayers(pageName, layerTrees);
+
+    if (!result.success) {
+      return {
+        content: [{ type: "text", text: `Failed to create Figma layers: ${result.error}` }],
+        isError: true,
+      };
+    }
+
+    return {
+      content: [
+        {
+          type: "text",
+          text: `Successfully imported "${pageName}" as editable layers to Figma!\n\nFrame ID: ${result.frameId}\nViewports: ${viewports.join(", ")}\nLayers created: ${result.layersCreated}`,
+        },
+      ],
+    };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return {
+      content: [{ type: "text", text: `Error importing page as layers: ${message}` }],
       isError: true,
     };
   }

@@ -24,9 +24,22 @@ export const CaptureScreenshotInputSchema = z.object({
     .describe('Viewports to capture. Default: ["desktop"]'),
 });
 
+export const ImportPageAsLayersInputSchema = z.object({
+  source: z.string().describe("File path (@/app/page.tsx) or URL (localhost:3000)"),
+  viewports: z
+    .array(ViewportSchema)
+    .default(["desktop"])
+    .describe('Viewports to capture. Default: ["desktop"]'),
+  projectPath: z
+    .string()
+    .optional()
+    .describe("Next.js project root path. Auto-detected if not provided."),
+});
+
 export type ImportPageInput = z.infer<typeof ImportPageInputSchema>;
 export type CheckConnectionInput = z.infer<typeof CheckConnectionInputSchema>;
 export type CaptureScreenshotInput = z.infer<typeof CaptureScreenshotInputSchema>;
+export type ImportPageAsLayersInput = z.infer<typeof ImportPageAsLayersInputSchema>;
 
 export interface ToolDefinition {
   name: string;
@@ -40,6 +53,12 @@ export const TOOLS: ToolDefinition[] = [
     description:
       "Capture a Next.js page and import to Figma. Supports file paths (@/app/page.tsx) or URLs (localhost:3000). Creates frames for each viewport (desktop/mobile).",
     inputSchema: ImportPageInputSchema,
+  },
+  {
+    name: "import_page_as_layers",
+    description:
+      "Extract web page as editable Figma layers instead of screenshot. Creates nested frames, text nodes, and rectangles that match the DOM structure. Supports file paths (@/app/page.tsx) or URLs (localhost:3000).",
+    inputSchema: ImportPageAsLayersInputSchema,
   },
   {
     name: "check_figma_connection",

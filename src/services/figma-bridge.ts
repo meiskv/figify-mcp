@@ -1,19 +1,25 @@
 import { type WebSocket, WebSocketServer } from "ws";
-import type { FigmaFrameCreatedPayload, FigmaMessage, Screenshot } from "../types/index.js";
+import type {
+  FigmaFrameCreatedPayload,
+  FigmaLayerTree,
+  FigmaMessage,
+  LayersCreatedPayload,
+  Screenshot,
+} from "../types/index.js";
 
 const WEBSOCKET_PORT = 19407;
 const REQUEST_TIMEOUT = 30000; // 30 seconds
 
+type PendingResolve<T> = {
+  resolve: (value: T) => void;
+  reject: (error: Error) => void;
+};
+
 export class FigmaBridge {
   private wss: WebSocketServer | null = null;
   private client: WebSocket | null = null;
-  private pendingRequests = new Map<
-    string,
-    {
-      resolve: (value: FigmaFrameCreatedPayload) => void;
-      reject: (error: Error) => void;
-    }
-  >();
+  private pendingRequests = new Map<string, PendingResolve<FigmaFrameCreatedPayload>>();
+  private pendingLayerRequests = new Map<string, PendingResolve<LayersCreatedPayload>>();
   private messageId = 0;
 
   async start(): Promise<void> {
@@ -121,6 +127,49 @@ export class FigmaBridge {
     });
   }
 
+  async createLayers(name: string, layers: FigmaLayerTree[]): Promise<LayersCreatedPayload> {
+    if (!this.isConnected()) {
+      return {
+        frameId: "",
+        success: false,
+        layersCreated: 0,
+        error: "Figma plugin is not connected",
+      };
+    }
+
+    const id = this.generateMessageId();
+    const message: FigmaMessage = {
+      id,
+      type: "CREATE_LAYERS",
+      payload: {
+        name,
+        layers,
+      },
+    };
+
+    return new Promise((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        this.pendingLayerRequests.delete(id);
+        reject(new Error("Request timed out waiting for Figma plugin response"));
+      }, REQUEST_TIMEOUT);
+
+      this.pendingLayerRequests.set(id, {
+        resolve: (result) => {
+          clearTimeout(timeout);
+          resolve(result);
+        },
+        reject: (error) => {
+          clearTimeout(timeout);
+          reject(error);
+        },
+      });
+
+      if (this.client) {
+        this.client.send(JSON.stringify(message));
+      }
+    });
+  }
+
   private handleMessage(data: string): void {
     try {
       const message = JSON.parse(data) as FigmaMessage;
@@ -131,12 +180,25 @@ export class FigmaBridge {
           this.pendingRequests.delete(message.id);
           pending.resolve(message.payload as FigmaFrameCreatedPayload);
         }
+      } else if (message.type === "LAYERS_CREATED") {
+        const pending = this.pendingLayerRequests.get(message.id);
+        if (pending) {
+          this.pendingLayerRequests.delete(message.id);
+          pending.resolve(message.payload as LayersCreatedPayload);
+        }
       } else if (message.type === "ERROR") {
+        // Check both pending request maps
         const pending = this.pendingRequests.get(message.id);
+        const pendingLayers = this.pendingLayerRequests.get(message.id);
+        const payload = message.payload as { error: string };
+
         if (pending) {
           this.pendingRequests.delete(message.id);
-          const payload = message.payload as { error: string };
           pending.reject(new Error(payload.error));
+        }
+        if (pendingLayers) {
+          this.pendingLayerRequests.delete(message.id);
+          pendingLayers.reject(new Error(payload.error));
         }
       } else if (message.type === "PING") {
         // Respond to ping with pong
