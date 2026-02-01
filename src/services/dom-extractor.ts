@@ -261,6 +261,52 @@ const EXTRACTION_SCRIPT = `
     return effects;
   }
 
+  function parseFlexbox(styles) {
+    const display = styles.display;
+    if (display !== 'flex' && display !== 'inline-flex') {
+      return null;
+    }
+
+    // Map flex-direction to Figma layoutMode
+    const flexDirection = styles.flexDirection;
+    const layoutMode = (flexDirection === 'column' || flexDirection === 'column-reverse')
+      ? 'VERTICAL'
+      : 'HORIZONTAL';
+
+    // Map justify-content to primaryAxisAlignItems
+    const justifyContent = styles.justifyContent;
+    let primaryAxisAlignItems = 'MIN';
+    if (justifyContent === 'center') primaryAxisAlignItems = 'CENTER';
+    else if (justifyContent === 'flex-end' || justifyContent === 'end') primaryAxisAlignItems = 'MAX';
+    else if (justifyContent === 'space-between') primaryAxisAlignItems = 'SPACE_BETWEEN';
+
+    // Map align-items to counterAxisAlignItems
+    const alignItems = styles.alignItems;
+    let counterAxisAlignItems = 'MIN';
+    if (alignItems === 'center') counterAxisAlignItems = 'CENTER';
+    else if (alignItems === 'flex-end' || alignItems === 'end') counterAxisAlignItems = 'MAX';
+
+    // Extract padding
+    const paddingLeft = parseFloat(styles.paddingLeft) || 0;
+    const paddingRight = parseFloat(styles.paddingRight) || 0;
+    const paddingTop = parseFloat(styles.paddingTop) || 0;
+    const paddingBottom = parseFloat(styles.paddingBottom) || 0;
+
+    // Extract gap (itemSpacing)
+    const gap = parseFloat(styles.gap) || parseFloat(styles.columnGap) || parseFloat(styles.rowGap) || 0;
+
+    return {
+      layoutMode,
+      primaryAxisAlignItems,
+      counterAxisAlignItems,
+      paddingLeft: Math.round(paddingLeft),
+      paddingRight: Math.round(paddingRight),
+      paddingTop: Math.round(paddingTop),
+      paddingBottom: Math.round(paddingBottom),
+      itemSpacing: Math.round(gap)
+    };
+  }
+
   function getElementName(el) {
     const tag = el.tagName.toLowerCase();
     const className = el.className && typeof el.className === 'string'
@@ -305,6 +351,45 @@ const EXTRACTION_SCRIPT = `
         else if (styles.textAlign === 'right') textAlign = 'RIGHT';
         else if (styles.textAlign === 'justify') textAlign = 'JUSTIFIED';
 
+        // Check if element has visual styling (border, background, shadow)
+        const fills = parseBackground(styles);
+        const border = parseBorder(styles);
+        const effects = parseBoxShadow(styles);
+        // Cap borderRadius at 1000 (Tailwind's rounded-full uses huge values)
+        const borderRadius = Math.min(parseFloat(styles.borderRadius) || 0, 1000);
+        const hasVisualStyling = fills.length > 0 || border.strokeWeight > 0 || effects.length > 0 || borderRadius > 0;
+
+        // If element has visual styling, create a FRAME with TEXT child
+        if (hasVisualStyling) {
+          const textChild = {
+            id: generateId(),
+            name: 'text',
+            type: 'TEXT',
+            x: 0,
+            y: 0,
+            width: Math.round(rect.width),
+            height: Math.round(rect.height),
+            characters: text,
+            fontSize,
+            fontFamily,
+            fontWeight,
+            textColor,
+            textAlign
+          };
+
+          return {
+            ...base,
+            type: 'FRAME',
+            children: [textChild],
+            fills,
+            cornerRadius: borderRadius > 0 ? borderRadius : undefined,
+            strokes: border.strokes.length > 0 ? border.strokes : undefined,
+            strokeWeight: border.strokeWeight > 0 ? border.strokeWeight : undefined,
+            effects: effects.length > 0 ? effects : undefined
+          };
+        }
+
+        // No visual styling - return plain TEXT layer
         return {
           ...base,
           type: 'TEXT',
@@ -320,9 +405,11 @@ const EXTRACTION_SCRIPT = `
 
     // Container element (FRAME)
     const fills = parseBackground(styles);
-    const borderRadius = parseFloat(styles.borderRadius) || 0;
+    // Cap borderRadius at 1000 (Tailwind's rounded-full uses huge values like 9999px)
+    const borderRadius = Math.min(parseFloat(styles.borderRadius) || 0, 1000);
     const border = parseBorder(styles);
     const effects = parseBoxShadow(styles);
+    const flexbox = parseFlexbox(styles);
 
     // Extract children
     const children = [];
@@ -339,7 +426,7 @@ const EXTRACTION_SCRIPT = `
       return null;
     }
 
-    return {
+    const frameResult = {
       ...base,
       type: 'FRAME',
       children,
@@ -349,6 +436,20 @@ const EXTRACTION_SCRIPT = `
       strokeWeight: border.strokeWeight > 0 ? border.strokeWeight : undefined,
       effects: effects.length > 0 ? effects : undefined
     };
+
+    // Add Auto Layout properties if element uses flexbox
+    if (flexbox) {
+      frameResult.layoutMode = flexbox.layoutMode;
+      frameResult.primaryAxisAlignItems = flexbox.primaryAxisAlignItems;
+      frameResult.counterAxisAlignItems = flexbox.counterAxisAlignItems;
+      frameResult.paddingLeft = flexbox.paddingLeft;
+      frameResult.paddingRight = flexbox.paddingRight;
+      frameResult.paddingTop = flexbox.paddingTop;
+      frameResult.paddingBottom = flexbox.paddingBottom;
+      frameResult.itemSpacing = flexbox.itemSpacing;
+    }
+
+    return frameResult;
   }
 
   // Start extraction from body

@@ -53,6 +53,15 @@ interface FrameLayer extends BaseLayer {
   strokes?: FigmaStroke[];
   strokeWeight?: number;
   effects?: FigmaDropShadow[];
+  // Auto Layout properties
+  layoutMode?: "HORIZONTAL" | "VERTICAL" | "NONE";
+  primaryAxisAlignItems?: "MIN" | "CENTER" | "MAX" | "SPACE_BETWEEN";
+  counterAxisAlignItems?: "MIN" | "CENTER" | "MAX";
+  paddingLeft?: number;
+  paddingRight?: number;
+  paddingTop?: number;
+  paddingBottom?: number;
+  itemSpacing?: number;
 }
 
 interface TextLayer extends BaseLayer {
@@ -394,6 +403,27 @@ async function createNode(layer: Layer, parent: FrameNode): Promise<number> {
           visible: true,
           blendMode: "NORMAL" as const,
         }));
+      }
+
+      // Apply Auto Layout if present
+      if (frameLayer.layoutMode && frameLayer.layoutMode !== "NONE") {
+        frame.layoutMode = frameLayer.layoutMode;
+
+        if (frameLayer.primaryAxisAlignItems) {
+          frame.primaryAxisAlignItems = frameLayer.primaryAxisAlignItems;
+        }
+        if (frameLayer.counterAxisAlignItems) {
+          frame.counterAxisAlignItems = frameLayer.counterAxisAlignItems;
+        }
+
+        // Apply padding
+        if (frameLayer.paddingLeft !== undefined) frame.paddingLeft = frameLayer.paddingLeft;
+        if (frameLayer.paddingRight !== undefined) frame.paddingRight = frameLayer.paddingRight;
+        if (frameLayer.paddingTop !== undefined) frame.paddingTop = frameLayer.paddingTop;
+        if (frameLayer.paddingBottom !== undefined) frame.paddingBottom = frameLayer.paddingBottom;
+
+        // Apply item spacing (gap)
+        if (frameLayer.itemSpacing !== undefined) frame.itemSpacing = frameLayer.itemSpacing;
       }
 
       // Recursively create children

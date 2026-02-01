@@ -50,6 +50,15 @@ export interface FrameLayer extends BaseLayer {
   strokes?: FigmaStroke[];
   strokeWeight?: number;
   effects?: FigmaEffect[];
+  // Auto Layout properties
+  layoutMode?: "HORIZONTAL" | "VERTICAL" | "NONE";
+  primaryAxisAlignItems?: "MIN" | "CENTER" | "MAX" | "SPACE_BETWEEN";
+  counterAxisAlignItems?: "MIN" | "CENTER" | "MAX";
+  paddingLeft?: number;
+  paddingRight?: number;
+  paddingTop?: number;
+  paddingBottom?: number;
+  itemSpacing?: number;
 }
 
 export interface TextLayer extends BaseLayer {
