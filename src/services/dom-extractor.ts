@@ -261,20 +261,28 @@ const EXTRACTION_SCRIPT = `
     return effects;
   }
 
-  function parseFlexbox(styles) {
+  function parseFlexbox(styles, hasChildren) {
     const display = styles.display;
     const isFlex = display === 'flex' || display === 'inline-flex';
     const isGrid = display === 'grid' || display === 'inline-grid';
+    const isBlock = display === 'block' || display === 'inline-block';
 
-    if (!isFlex && !isGrid) {
+    // Treat block containers with children as vertical auto-layout
+    // This enables proper nesting and FILL sizing for descendants
+    if (!isFlex && !isGrid && !(isBlock && hasChildren)) {
       return null;
     }
 
-    let layoutMode = 'HORIZONTAL';
+    let layoutMode = 'VERTICAL'; // Default for block elements
     let primaryAxisAlignItems = 'MIN';
     let counterAxisAlignItems = 'MIN';
 
-    if (isFlex) {
+    if (isBlock && hasChildren) {
+      // Block elements stack children vertically like document flow
+      layoutMode = 'VERTICAL';
+      primaryAxisAlignItems = 'MIN';
+      counterAxisAlignItems = 'MIN'; // Left-align by default
+    } else if (isFlex) {
       // Map flex-direction to Figma layoutMode
       const flexDirection = styles.flexDirection;
       layoutMode = (flexDirection === 'column' || flexDirection === 'column-reverse')
@@ -332,13 +340,11 @@ const EXTRACTION_SCRIPT = `
     const parentDisplay = parentStyles?.display || '';
     const isInFlex = parentDisplay === 'flex' || parentDisplay === 'inline-flex';
     const isInGrid = parentDisplay === 'grid' || parentDisplay === 'inline-grid';
+    const isInBlock = parentDisplay === 'block' || parentDisplay === 'inline-block';
 
-    if (!isInFlex && !isInGrid) {
-      return { layoutSizingHorizontal: 'FIXED', layoutSizingVertical: 'FIXED' };
-    }
-
-    let layoutSizingHorizontal = 'FIXED';
-    let layoutSizingVertical = 'FIXED';
+    // All containers now use auto-layout, so we always compute sizing
+    let layoutSizingHorizontal = 'HUG';
+    let layoutSizingVertical = 'HUG';
 
     if (isInFlex) {
       const flexGrow = parseFloat(styles.flexGrow) || 0;
@@ -360,7 +366,13 @@ const EXTRACTION_SCRIPT = `
     }
 
     if (isInGrid) {
-      // Grid children typically fill their cell
+      // Grid children fill their cell horizontally
+      layoutSizingHorizontal = 'FILL';
+      layoutSizingVertical = 'HUG';
+    }
+
+    if (isInBlock) {
+      // Block children in vertical auto-layout fill width by default (like CSS block)
       layoutSizingHorizontal = 'FILL';
       layoutSizingVertical = 'HUG';
     }
@@ -475,7 +487,6 @@ const EXTRACTION_SCRIPT = `
     const borderRadius = Math.min(parseFloat(styles.borderRadius) || 0, 1000);
     const border = parseBorder(styles);
     const effects = parseBoxShadow(styles);
-    const flexbox = parseFlexbox(styles);
 
     // Extract children - pass current element's styles as parentStyles
     const children = [];
@@ -485,6 +496,9 @@ const EXTRACTION_SCRIPT = `
         children.push(extracted);
       }
     }
+
+    // Parse flexbox/grid/block layout AFTER we know if there are children
+    const flexbox = parseFlexbox(styles, children.length > 0);
 
     // Skip empty frames with no visual content
     const hasVisualContent = children.length > 0 || fills.length > 0 || borderRadius > 0 || border.strokeWeight > 0 || effects.length > 0;
