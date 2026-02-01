@@ -438,11 +438,16 @@ async function createNode(layer: Layer, parent: FrameNode): Promise<number> {
       parent.appendChild(frame);
 
       // Apply sizing AFTER appending to parent (only works in auto-layout)
-      if (frameLayer.layoutSizingHorizontal === "FILL") {
-        frame.layoutSizingHorizontal = "FILL";
-      }
-      if (frameLayer.layoutSizingVertical === "FILL") {
-        frame.layoutSizingVertical = "FILL";
+      // Only set FILL if parent has auto-layout enabled
+      try {
+        if (frameLayer.layoutSizingHorizontal === "FILL" && parent.layoutMode !== "NONE") {
+          frame.layoutSizingHorizontal = "FILL";
+        }
+        if (frameLayer.layoutSizingVertical === "FILL" && parent.layoutMode !== "NONE") {
+          frame.layoutSizingVertical = "FILL";
+        }
+      } catch (_e) {
+        // Parent doesn't support auto-layout sizing, skip
       }
 
       break;
