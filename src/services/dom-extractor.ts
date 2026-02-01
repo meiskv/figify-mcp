@@ -263,28 +263,48 @@ const EXTRACTION_SCRIPT = `
 
   function parseFlexbox(styles) {
     const display = styles.display;
-    if (display !== 'flex' && display !== 'inline-flex') {
+    const isFlex = display === 'flex' || display === 'inline-flex';
+    const isGrid = display === 'grid' || display === 'inline-grid';
+
+    if (!isFlex && !isGrid) {
       return null;
     }
 
-    // Map flex-direction to Figma layoutMode
-    const flexDirection = styles.flexDirection;
-    const layoutMode = (flexDirection === 'column' || flexDirection === 'column-reverse')
-      ? 'VERTICAL'
-      : 'HORIZONTAL';
-
-    // Map justify-content to primaryAxisAlignItems
-    const justifyContent = styles.justifyContent;
+    let layoutMode = 'HORIZONTAL';
     let primaryAxisAlignItems = 'MIN';
-    if (justifyContent === 'center') primaryAxisAlignItems = 'CENTER';
-    else if (justifyContent === 'flex-end' || justifyContent === 'end') primaryAxisAlignItems = 'MAX';
-    else if (justifyContent === 'space-between') primaryAxisAlignItems = 'SPACE_BETWEEN';
-
-    // Map align-items to counterAxisAlignItems
-    const alignItems = styles.alignItems;
     let counterAxisAlignItems = 'MIN';
-    if (alignItems === 'center') counterAxisAlignItems = 'CENTER';
-    else if (alignItems === 'flex-end' || alignItems === 'end') counterAxisAlignItems = 'MAX';
+
+    if (isFlex) {
+      // Map flex-direction to Figma layoutMode
+      const flexDirection = styles.flexDirection;
+      layoutMode = (flexDirection === 'column' || flexDirection === 'column-reverse')
+        ? 'VERTICAL'
+        : 'HORIZONTAL';
+
+      // Map justify-content to primaryAxisAlignItems
+      const justifyContent = styles.justifyContent;
+      if (justifyContent === 'center') primaryAxisAlignItems = 'CENTER';
+      else if (justifyContent === 'flex-end' || justifyContent === 'end') primaryAxisAlignItems = 'MAX';
+      else if (justifyContent === 'space-between') primaryAxisAlignItems = 'SPACE_BETWEEN';
+
+      // Map align-items to counterAxisAlignItems
+      const alignItems = styles.alignItems;
+      if (alignItems === 'center') counterAxisAlignItems = 'CENTER';
+      else if (alignItems === 'flex-end' || alignItems === 'end') counterAxisAlignItems = 'MAX';
+    } else if (isGrid) {
+      // For grid, determine direction from grid-auto-flow or template
+      const gridAutoFlow = styles.gridAutoFlow;
+      layoutMode = gridAutoFlow.includes('column') ? 'VERTICAL' : 'HORIZONTAL';
+
+      // Grid alignment
+      const justifyItems = styles.justifyItems;
+      if (justifyItems === 'center') primaryAxisAlignItems = 'CENTER';
+      else if (justifyItems === 'end') primaryAxisAlignItems = 'MAX';
+
+      const alignItems = styles.alignItems;
+      if (alignItems === 'center') counterAxisAlignItems = 'CENTER';
+      else if (alignItems === 'end') counterAxisAlignItems = 'MAX';
+    }
 
     // Extract padding
     const paddingLeft = parseFloat(styles.paddingLeft) || 0;
@@ -307,6 +327,47 @@ const EXTRACTION_SCRIPT = `
     };
   }
 
+  function parseChildSizing(el, parentStyles) {
+    const styles = getComputedStyle(el);
+    const parentDisplay = parentStyles?.display || '';
+    const isInFlex = parentDisplay === 'flex' || parentDisplay === 'inline-flex';
+    const isInGrid = parentDisplay === 'grid' || parentDisplay === 'inline-grid';
+
+    if (!isInFlex && !isInGrid) {
+      return { layoutSizingHorizontal: 'FIXED', layoutSizingVertical: 'FIXED' };
+    }
+
+    let layoutSizingHorizontal = 'FIXED';
+    let layoutSizingVertical = 'FIXED';
+
+    if (isInFlex) {
+      const flexGrow = parseFloat(styles.flexGrow) || 0;
+      const flexDirection = parentStyles.flexDirection || 'row';
+      const isHorizontal = flexDirection === 'row' || flexDirection === 'row-reverse';
+
+      // Check if child should fill
+      if (flexGrow > 0) {
+        if (isHorizontal) {
+          layoutSizingHorizontal = 'FILL';
+        } else {
+          layoutSizingVertical = 'FILL';
+        }
+      }
+
+      // Check width/height 100%
+      if (styles.width === '100%') layoutSizingHorizontal = 'FILL';
+      if (styles.height === '100%') layoutSizingVertical = 'FILL';
+    }
+
+    if (isInGrid) {
+      // Grid children typically fill their cell
+      layoutSizingHorizontal = 'FILL';
+      layoutSizingVertical = 'HUG';
+    }
+
+    return { layoutSizingHorizontal, layoutSizingVertical };
+  }
+
   function getElementName(el) {
     const tag = el.tagName.toLowerCase();
     const className = el.className && typeof el.className === 'string'
@@ -316,7 +377,7 @@ const EXTRACTION_SCRIPT = `
     return tag + (id || (className ? '.' + className : ''));
   }
 
-  function extractElement(el, parentRect) {
+  function extractElement(el, parentRect, parentStyles) {
     if (el.nodeType !== Node.ELEMENT_NODE) return null;
     if (SKIP_TAGS.has(el.tagName)) return null;
 
@@ -327,13 +388,18 @@ const EXTRACTION_SCRIPT = `
     const x = parentRect ? rect.left - parentRect.left : rect.left;
     const y = parentRect ? rect.top - parentRect.top : rect.top;
 
+    // Get child sizing if parent uses flexbox/grid
+    const childSizing = parseChildSizing(el, parentStyles);
+
     const base = {
       id: generateId(),
       name: getElementName(el),
       x: Math.round(x),
       y: Math.round(y),
       width: Math.round(rect.width),
-      height: Math.round(rect.height)
+      height: Math.round(rect.height),
+      layoutSizingHorizontal: childSizing.layoutSizingHorizontal,
+      layoutSizingVertical: childSizing.layoutSizingVertical
     };
 
     // Check if this is a text element
@@ -411,10 +477,10 @@ const EXTRACTION_SCRIPT = `
     const effects = parseBoxShadow(styles);
     const flexbox = parseFlexbox(styles);
 
-    // Extract children
+    // Extract children - pass current element's styles as parentStyles
     const children = [];
     for (const child of el.children) {
-      const extracted = extractElement(child, rect);
+      const extracted = extractElement(child, rect, styles);
       if (extracted) {
         children.push(extracted);
       }
@@ -455,6 +521,7 @@ const EXTRACTION_SCRIPT = `
   // Start extraction from body
   const body = document.body;
   const bodyRect = body.getBoundingClientRect();
+  const bodyStyles = getComputedStyle(body);
 
   const rootLayer = {
     id: 'root',
@@ -465,11 +532,11 @@ const EXTRACTION_SCRIPT = `
     width: Math.round(bodyRect.width),
     height: Math.round(bodyRect.height),
     children: [],
-    fills: parseBackground(getComputedStyle(body))
+    fills: parseBackground(bodyStyles)
   };
 
   for (const child of body.children) {
-    const extracted = extractElement(child, bodyRect);
+    const extracted = extractElement(child, bodyRect, bodyStyles);
     if (extracted) {
       rootLayer.children.push(extracted);
     }

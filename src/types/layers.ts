@@ -59,6 +59,9 @@ export interface FrameLayer extends BaseLayer {
   paddingTop?: number;
   paddingBottom?: number;
   itemSpacing?: number;
+  // Child sizing (for when this frame is inside an auto layout parent)
+  layoutSizingHorizontal?: "FIXED" | "HUG" | "FILL";
+  layoutSizingVertical?: "FIXED" | "HUG" | "FILL";
 }
 
 export interface TextLayer extends BaseLayer {

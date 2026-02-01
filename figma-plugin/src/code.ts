@@ -62,6 +62,9 @@ interface FrameLayer extends BaseLayer {
   paddingTop?: number;
   paddingBottom?: number;
   itemSpacing?: number;
+  // Child sizing
+  layoutSizingHorizontal?: "FIXED" | "HUG" | "FILL";
+  layoutSizingVertical?: "FIXED" | "HUG" | "FILL";
 }
 
 interface TextLayer extends BaseLayer {
@@ -433,6 +436,15 @@ async function createNode(layer: Layer, parent: FrameNode): Promise<number> {
       }
 
       parent.appendChild(frame);
+
+      // Apply sizing AFTER appending to parent (only works in auto-layout)
+      if (frameLayer.layoutSizingHorizontal === "FILL") {
+        frame.layoutSizingHorizontal = "FILL";
+      }
+      if (frameLayer.layoutSizingVertical === "FILL") {
+        frame.layoutSizingVertical = "FILL";
+      }
+
       break;
     }
   }
