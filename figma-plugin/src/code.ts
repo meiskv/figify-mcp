@@ -226,7 +226,7 @@ async function loadInterFont(weight: number): Promise<FontName> {
     try {
       await figma.loadFontAsync({ family: "Inter", style });
       INTER_FONTS_LOADED.add(fontKey);
-    } catch {
+    } catch (_e) {
       // Fall back to Regular if specific weight not available
       if (style !== "Regular") {
         await figma.loadFontAsync({ family: "Inter", style: "Regular" });

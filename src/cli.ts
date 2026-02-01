@@ -309,7 +309,7 @@ if (args.includes("--help") || args.includes("-h")) {
 }
 
 if (args.includes("--version") || args.includes("-v")) {
-  print("figify-mcp v1.0.0");
+  print("figify-mcp v1.5.1");
   process.exit(0);
 }
 

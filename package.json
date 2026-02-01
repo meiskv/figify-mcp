@@ -1,6 +1,6 @@
 {
   "name": "figify-mcp",
-  "version": "1.5.0",
+  "version": "1.5.1",
   "description": "MCP server that converts Next.js pages to Figma designs - Code to Figma powered by Claude",
   "type": "module",
   "main": "dist/index.js",
