@@ -1,0 +1,333 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>figify-mcp</title>
+    <style>
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+
+      body {
+        font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+        font-size: 12px;
+        padding: 16px;
+        background: #ffffff;
+        color: #333333;
+      }
+
+      .container {
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+      }
+
+      .status {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 8px 12px;
+        border-radius: 6px;
+        background: #f5f5f5;
+      }
+
+      .status-dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: #ff4444;
+      }
+
+      .status-dot.connected {
+        background: #22cc44;
+      }
+
+      .status-dot.connecting {
+        background: #ffaa00;
+        animation: pulse 1s infinite;
+      }
+
+      @keyframes pulse {
+        0%,
+        100% {
+          opacity: 1;
+        }
+        50% {
+          opacity: 0.5;
+        }
+      }
+
+      .log {
+        background: #1e1e1e;
+        color: #d4d4d4;
+        padding: 12px;
+        border-radius: 6px;
+        font-family: "SF Mono", Monaco, Consolas, monospace;
+        font-size: 11px;
+        height: 200px;
+        overflow-y: auto;
+      }
+
+      .log-entry {
+        margin-bottom: 4px;
+        word-break: break-all;
+      }
+
+      .log-entry.error {
+        color: #ff6b6b;
+      }
+
+      .log-entry.success {
+        color: #69db7c;
+      }
+
+      .log-entry.info {
+        color: #74c0fc;
+      }
+
+      button {
+        padding: 8px 16px;
+        border: none;
+        border-radius: 6px;
+        background: #18a0fb;
+        color: white;
+        font-size: 12px;
+        font-weight: 500;
+        cursor: pointer;
+        transition: background 0.2s;
+      }
+
+      button:hover {
+        background: #0d8de8;
+      }
+
+      button:disabled {
+        background: #cccccc;
+        cursor: not-allowed;
+      }
+
+      h1 {
+        font-size: 14px;
+        font-weight: 600;
+        margin-bottom: 4px;
+      }
+
+      p {
+        color: #666666;
+        line-height: 1.4;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <div>
+        <h1>figify-mcp</h1>
+        <p>Connects to the MCP server to receive page screenshots</p>
+      </div>
+
+      <div class="status">
+        <div class="status-dot" id="statusDot"></div>
+        <span id="statusText">Disconnected</span>
+      </div>
+
+      <button id="connectBtn" onclick="toggleConnection()">Connect</button>
+
+      <div class="log" id="log"></div>
+    </div>
+
+    <script>
+      const WEBSOCKET_URL = "ws://localhost:19407";
+      let ws = null;
+      let isConnected = false;
+      let reconnectAttempts = 0;
+      const MAX_RECONNECT_ATTEMPTS = 5;
+      const RECONNECT_DELAY = 2000;
+
+      function log(message, type = "info") {
+        const logEl = document.getElementById("log");
+        const entry = document.createElement("div");
+        entry.className = `log-entry ${type}`;
+        entry.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
+        logEl.appendChild(entry);
+        logEl.scrollTop = logEl.scrollHeight;
+      }
+
+      function updateStatus(status) {
+        const dot = document.getElementById("statusDot");
+        const text = document.getElementById("statusText");
+        const btn = document.getElementById("connectBtn");
+
+        dot.className = "status-dot";
+
+        switch (status) {
+          case "connected":
+            dot.classList.add("connected");
+            text.textContent = "Connected";
+            btn.textContent = "Disconnect";
+            isConnected = true;
+            break;
+          case "connecting":
+            dot.classList.add("connecting");
+            text.textContent = "Connecting...";
+            btn.disabled = true;
+            break;
+          case "disconnected":
+          default:
+            text.textContent = "Disconnected";
+            btn.textContent = "Connect";
+            btn.disabled = false;
+            isConnected = false;
+            break;
+        }
+      }
+
+      function connect() {
+        if (ws && ws.readyState === WebSocket.OPEN) {
+          return;
+        }
+
+        updateStatus("connecting");
+        log("Connecting to MCP server...");
+
+        try {
+          ws = new WebSocket(WEBSOCKET_URL);
+
+          ws.onopen = () => {
+            updateStatus("connected");
+            log("Connected to MCP server", "success");
+            reconnectAttempts = 0;
+
+            // Send initial ping
+            ws.send(JSON.stringify({ id: "ping_0", type: "PING", payload: {} }));
+          };
+
+          ws.onmessage = (event) => {
+            try {
+              const message = JSON.parse(event.data);
+              handleMessage(message);
+            } catch (error) {
+              log(`Failed to parse message: ${error.message}`, "error");
+            }
+          };
+
+          ws.onclose = () => {
+            updateStatus("disconnected");
+            log("Disconnected from MCP server");
+            ws = null;
+
+            // Auto-reconnect if we were previously connected
+            if (reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
+              reconnectAttempts++;
+              log(`Reconnecting in ${RECONNECT_DELAY / 1000}s (attempt ${reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS})...`);
+              setTimeout(connect, RECONNECT_DELAY);
+            }
+          };
+
+          ws.onerror = (error) => {
+            log("WebSocket error - is the MCP server running?", "error");
+          };
+        } catch (error) {
+          log(`Connection failed: ${error.message}`, "error");
+          updateStatus("disconnected");
+        }
+      }
+
+      function disconnect() {
+        reconnectAttempts = MAX_RECONNECT_ATTEMPTS; // Prevent auto-reconnect
+        if (ws) {
+          ws.close();
+          ws = null;
+        }
+        updateStatus("disconnected");
+        log("Disconnected");
+      }
+
+      function toggleConnection() {
+        if (isConnected) {
+          disconnect();
+        } else {
+          reconnectAttempts = 0;
+          connect();
+        }
+      }
+
+      function handleMessage(message) {
+        log(`Received: ${message.type}`, "info");
+
+        switch (message.type) {
+          case "CREATE_FRAME":
+            handleCreateFrame(message);
+            break;
+          case "PONG":
+            log("Ping successful", "success");
+            break;
+          default:
+            log(`Unknown message type: ${message.type}`);
+        }
+      }
+
+      function handleCreateFrame(message) {
+        const { id, payload } = message;
+        const { name, screenshots } = payload;
+
+        log(`Creating frame: ${name} with ${screenshots.length} screenshot(s)`, "info");
+
+        // Send to Figma plugin code
+        parent.postMessage(
+          {
+            pluginMessage: {
+              type: "CREATE_FRAME",
+              id,
+              name,
+              screenshots,
+            },
+          },
+          "*"
+        );
+      }
+
+      // Receive messages from Figma plugin code
+      window.onmessage = (event) => {
+        const msg = event.data.pluginMessage;
+        if (!msg) return;
+
+        if (msg.type === "FRAME_CREATED") {
+          log(`Frame created: ${msg.frameId}`, "success");
+
+          // Send response back to MCP server
+          if (ws && ws.readyState === WebSocket.OPEN) {
+            ws.send(
+              JSON.stringify({
+                id: msg.id,
+                type: "FRAME_CREATED",
+                payload: {
+                  frameId: msg.frameId,
+                  success: true,
+                },
+              })
+            );
+          }
+        } else if (msg.type === "ERROR") {
+          log(`Error: ${msg.error}`, "error");
+
+          if (ws && ws.readyState === WebSocket.OPEN) {
+            ws.send(
+              JSON.stringify({
+                id: msg.id,
+                type: "ERROR",
+                payload: {
+                  error: msg.error,
+                },
+              })
+            );
+          }
+        }
+      };
+
+      // Auto-connect on load
+      setTimeout(connect, 500);
+    </script>
+  </body>
+</html>
