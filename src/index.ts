@@ -1,8 +1,8 @@
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { CallToolRequestSchema, ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
+import { DevServerManager } from "./services/dev-server-manager.js";
 import { FigmaBridge } from "./services/figma-bridge.js";
-import { PageRenderer } from "./services/page-renderer.js";
 import { ScreenshotService } from "./services/screenshot-service.js";
 import { type ToolContext, getToolDefinitions, handleToolCall } from "./tools/index.js";
 
@@ -11,12 +11,12 @@ export async function main() {
 
   // Initialize services
   const figmaBridge = new FigmaBridge();
-  const pageRenderer = new PageRenderer();
+  const devServerManager = new DevServerManager();
   const screenshotService = new ScreenshotService();
 
   const context: ToolContext = {
     figmaBridge,
-    pageRenderer,
+    devServerManager,
     screenshotService,
   };
 
@@ -57,7 +57,7 @@ export async function main() {
   const cleanup = async () => {
     console.error("[figify-mcp] Shutting down");
     await screenshotService.close();
-    await pageRenderer.cleanup();
+    await devServerManager.stopServer();
     await figmaBridge.stop();
     process.exit(0);
   };

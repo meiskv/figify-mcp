@@ -9,15 +9,15 @@ import {
   ImportPageInputSchema,
   TOOLS,
 } from "../registry.js";
+import type { DevServerManager } from "../services/dev-server-manager.js";
 import type { FigmaBridge } from "../services/figma-bridge.js";
-import type { PageRenderer } from "../services/page-renderer.js";
 import type { ScreenshotService } from "../services/screenshot-service.js";
 import type { FigmaLayerTree, Screenshot, ViewportType } from "../types/index.js";
 import { zodToJsonSchema } from "../utils/zod-to-json-schema.js";
 
 export interface ToolContext {
   figmaBridge: FigmaBridge;
-  pageRenderer: PageRenderer;
+  devServerManager: DevServerManager;
   screenshotService: ScreenshotService;
 }
 
@@ -84,7 +84,7 @@ async function handleImportPage(input: ImportPageInput, context: ToolContext): P
 
   try {
     // Resolve URL from source
-    const url = await context.pageRenderer.resolveUrl(source, projectPath);
+    const url = await context.devServerManager.resolveToUrl(source, projectPath);
 
     // Capture screenshots for each viewport
     const screenshots: Screenshot[] = [];
@@ -150,7 +150,7 @@ async function handleImportPageAsLayers(
 
   try {
     // Resolve URL from source
-    const url = await context.pageRenderer.resolveUrl(source, projectPath);
+    const url = await context.devServerManager.resolveToUrl(source, projectPath);
     const pageName = extractPageName(source);
 
     // Capture with layers for each viewport
