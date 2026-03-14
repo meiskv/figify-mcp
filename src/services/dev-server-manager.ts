@@ -5,6 +5,8 @@ import type { DevServerInfo } from "../types/index.js";
 
 const DEFAULT_PORT = 3000;
 const SERVER_READY_TIMEOUT = 60000; // 60 seconds
+const POLL_INTERVAL_MS = 1000;
+const READY_SETTLE_DELAY_MS = 1000;
 
 export class DevServerManager {
   private serverProcess: ChildProcess | null = null;
@@ -15,135 +17,93 @@ export class DevServerManager {
    * Starts dev server if needed.
    */
   async resolveToUrl(source: string, projectPath?: string): Promise<string> {
-    // If it's already a URL, return it
     if (source.startsWith("http://") || source.startsWith("https://")) {
       return source;
     }
 
-    // Handle localhost shorthand
     if (source.startsWith("localhost")) {
       return `http://${source}`;
     }
 
-    // It's a file path - need to start dev server and convert to route
+    // It's a file path — start dev server and convert to route
     const resolvedProjectPath = projectPath || (await this.findProjectRoot(source));
     const route = this.filePathToRoute(source, resolvedProjectPath);
-
-    // Check if dev server is already running
     const serverInfo = await this.ensureDevServer(resolvedProjectPath);
 
     return `${serverInfo.url}${route}`;
   }
 
   /**
-   * Convert a file path like @/app/journey/page.tsx to a route like /journey
+   * Convert a file path like @/app/journey/page.tsx to a route like /journey.
    */
   filePathToRoute(filePath: string, projectPath: string): string {
-    // Normalize the path
     let normalized = filePath;
 
-    // Handle @/ alias
+    // Strip @/ alias or absolute project prefix
     if (normalized.startsWith("@/")) {
       normalized = normalized.slice(2);
-    }
-
-    // Handle absolute paths
-    if (normalized.startsWith(projectPath)) {
+    } else if (normalized.startsWith(projectPath)) {
       normalized = normalized.slice(projectPath.length);
     }
 
-    // Remove leading slash
-    if (normalized.startsWith("/")) {
-      normalized = normalized.slice(1);
-    }
+    // Strip leading slash then "app/" prefix
+    normalized = normalized.replace(/^\//, "").replace(/^app\//, "");
 
-    // Handle app router paths
-    if (normalized.startsWith("app/")) {
-      normalized = normalized.slice(4);
-    }
-
-    // Remove page.tsx, page.ts, page.jsx, page.js
+    // Strip page/layout file segments
     normalized = normalized.replace(/\/?(page|layout)\.(tsx?|jsx?)$/, "");
 
-    // Handle index routes
-    if (normalized === "" || normalized === "/") {
+    if (!normalized || normalized === "/") {
       return "/";
     }
 
-    // Ensure leading slash
-    if (!normalized.startsWith("/")) {
-      normalized = `/${normalized}`;
-    }
-
-    // Remove trailing slash
-    if (normalized.endsWith("/") && normalized !== "/") {
-      normalized = normalized.slice(0, -1);
-    }
+    // Normalise to /route without trailing slash
+    normalized = `/${normalized}`.replace(/\/$/, "");
 
     return normalized;
   }
 
   /**
-   * Find the Next.js project root by looking for package.json
+   * Find the Next.js project root by walking up from the file looking for
+   * a package.json that lists next as a dependency.
    */
   async findProjectRoot(filePath: string): Promise<string> {
-    // Start from the file's directory
-    let dir = path.dirname(filePath);
+    let dir = filePath.startsWith("@/") ? process.cwd() : path.dirname(filePath);
 
-    // Handle @/ alias - assume current working directory
-    if (filePath.startsWith("@/")) {
-      dir = process.cwd();
-    }
-
-    // Walk up until we find package.json with next dependency
     while (dir !== path.dirname(dir)) {
       const packageJsonPath = path.join(dir, "package.json");
       if (fs.existsSync(packageJsonPath)) {
         try {
-          const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, "utf-8"));
-          if (packageJson.dependencies?.next || packageJson.devDependencies?.next) {
+          const pkg = JSON.parse(fs.readFileSync(packageJsonPath, "utf-8"));
+          if (pkg.dependencies?.next || pkg.devDependencies?.next) {
             return dir;
           }
         } catch {
-          // Continue searching
+          // Continue searching upwards
         }
       }
       dir = path.dirname(dir);
     }
 
-    // Fallback to current working directory
     return process.cwd();
   }
 
   /**
-   * Ensure dev server is running for the project
+   * Ensure a dev server is running for the project.
    */
   async ensureDevServer(projectPath: string): Promise<DevServerInfo> {
-    // First, check if a dev server is already running externally
     const externalServer = await this.checkExternalServer(DEFAULT_PORT);
-    if (externalServer) {
-      return externalServer;
-    }
+    if (externalServer) return externalServer;
 
-    // If we already started a server for this project, return it
     if (this.serverProcess && this.currentProjectPath === projectPath) {
-      return {
-        url: `http://localhost:${DEFAULT_PORT}`,
-        port: DEFAULT_PORT,
-        process: this.serverProcess,
-        isExternal: false,
-      };
+      return { url: `http://localhost:${DEFAULT_PORT}`, port: DEFAULT_PORT, isExternal: false };
     }
 
-    // Stop existing server if different project
     await this.stopServer();
-
-    // Start new server
     return this.startServer(projectPath);
   }
 
   /**
-   * Check if a dev server is already running externally
+   * Check whether a server is already listening on the given port.
    */
   private async checkExternalServer(port: number): Promise<DevServerInfo | null> {
     try {
@@ -152,25 +112,21 @@ export class DevServerManager {
         signal: AbortSignal.timeout(2000),
       });
 
+      // 404 is acceptable — the server is up, the route just doesn't exist yet
       if (response.ok || response.status === 404) {
-        // Server is running (404 is fine - just means route doesn't exist)
-        return {
-          url: `http://localhost:${port}`,
-          port,
-          isExternal: true,
-        };
+        return { url: `http://localhost:${port}`, port, isExternal: true };
       }
     } catch {
-      // Server not running
+      // Server not reachable
     }
 
     return null;
   }
 
   /**
-   * Start the Next.js dev server
+   * Spawn the Next.js dev server and resolve once it is accepting requests.
    */
-  private async startServer(projectPath: string): Promise<DevServerInfo> {
+  private startServer(projectPath: string): Promise<DevServerInfo> {
     return new Promise((resolve, reject) => {
       console.error(`[DevServerManager] Starting Next.js dev server in ${projectPath}`);
 
@@ -183,64 +139,64 @@ export class DevServerManager {
       this.serverProcess = serverProcess;
       this.currentProjectPath = projectPath;
 
-      const timeout = setTimeout(() => {
-        reject(new Error("Dev server startup timed out"));
-      }, SERVER_READY_TIMEOUT);
+      let settled = false;
 
-      const checkReady = async () => {
-        const server = await this.checkExternalServer(DEFAULT_PORT);
-        if (server) {
-          clearTimeout(timeout);
-          resolve({
-            url: `http://localhost:${DEFAULT_PORT}`,
-            port: DEFAULT_PORT,
-            process: serverProcess,
-            isExternal: false,
-          });
-          return true;
-        }
-        return false;
+      const settle = (fn: () => void) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timeoutHandle);
+        clearInterval(pollHandle);
+        fn();
       };
 
-      // Listen for ready signals
-      serverProcess.stdout?.on("data", async (data) => {
+      const tryResolve = async () => {
+        const server = await this.checkExternalServer(DEFAULT_PORT);
+        if (server) {
+          settle(() =>
+            resolve({
+              url: `http://localhost:${DEFAULT_PORT}`,
+              port: DEFAULT_PORT,
+              isExternal: false,
+            }),
+          );
+        }
+      };
+
+      const timeoutHandle = setTimeout(() => {
+        settle(() => reject(new Error("Dev server startup timed out")));
+      }, SERVER_READY_TIMEOUT);
+
+      const pollHandle = setInterval(tryResolve, POLL_INTERVAL_MS);
+
+      serverProcess.stdout?.on("data", async (data: Buffer) => {
         const output = data.toString();
         console.error(`[DevServerManager] stdout: ${output}`);
 
         if (output.includes("Ready") || output.includes("localhost:")) {
-          // Give it a moment to fully start
-          await new Promise((r) => setTimeout(r, 1000));
-          await checkReady();
+          // Give the server a moment to fully bind before probing
+          await new Promise((r) => setTimeout(r, READY_SETTLE_DELAY_MS));
+          tryResolve();
         }
       });
 
-      serverProcess.stderr?.on("data", (data) => {
+      serverProcess.stderr?.on("data", (data: Buffer) => {
         console.error(`[DevServerManager] stderr: ${data.toString()}`);
       });
 
-      serverProcess.on("error", (error) => {
-        clearTimeout(timeout);
-        reject(error);
+      serverProcess.on("error", (error: Error) => {
+        settle(() => reject(error));
       });
 
-      serverProcess.on("exit", (code) => {
+      serverProcess.on("exit", (code: number | null) => {
         if (code !== 0 && code !== null) {
-          clearTimeout(timeout);
-          reject(new Error(`Dev server exited with code ${code}`));
+          settle(() => reject(new Error(`Dev server exited with code ${code}`)));
         }
       });
-
-      // Poll for server ready
-      const pollInterval = setInterval(async () => {
-        if (await checkReady()) {
-          clearInterval(pollInterval);
-        }
-      }, 1000);
     });
   }
 
   /**
-   * Stop the dev server if we started it
+   * Stop the managed dev server if one is running.
    */
   async stopServer(): Promise<void> {
     if (this.serverProcess) {
