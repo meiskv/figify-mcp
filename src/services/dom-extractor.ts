@@ -437,8 +437,14 @@ const EXTRACTION_SCRIPT = `
         const borderRadius = Math.min(parseFloat(styles.borderRadius) || 0, 1000);
         const hasVisualStyling = fills.length > 0 || border.strokeWeight > 0 || effects.length > 0 || borderRadius > 0;
 
-        // If element has visual styling, create a FRAME with TEXT child
+        // If element has visual styling, create a FRAME with TEXT child (like a button)
         if (hasVisualStyling) {
+          // Extract padding for auto-layout
+          const paddingLeft = Math.round(parseFloat(styles.paddingLeft) || 0);
+          const paddingRight = Math.round(parseFloat(styles.paddingRight) || 0);
+          const paddingTop = Math.round(parseFloat(styles.paddingTop) || 0);
+          const paddingBottom = Math.round(parseFloat(styles.paddingBottom) || 0);
+
           const textChild = {
             id: generateId(),
             name: 'text',
@@ -452,7 +458,10 @@ const EXTRACTION_SCRIPT = `
             fontFamily,
             fontWeight,
             textColor,
-            textAlign
+            textAlign,
+            // Text should hug content in auto-layout
+            layoutSizingHorizontal: 'HUG',
+            layoutSizingVertical: 'HUG'
           };
 
           return {
@@ -463,7 +472,16 @@ const EXTRACTION_SCRIPT = `
             cornerRadius: borderRadius > 0 ? borderRadius : undefined,
             strokes: border.strokes.length > 0 ? border.strokes : undefined,
             strokeWeight: border.strokeWeight > 0 ? border.strokeWeight : undefined,
-            effects: effects.length > 0 ? effects : undefined
+            effects: effects.length > 0 ? effects : undefined,
+            // Auto-layout for buttons: horizontal, centered
+            layoutMode: 'HORIZONTAL',
+            primaryAxisAlignItems: 'CENTER',
+            counterAxisAlignItems: 'CENTER',
+            paddingLeft,
+            paddingRight,
+            paddingTop,
+            paddingBottom,
+            itemSpacing: 0
           };
         }
 
