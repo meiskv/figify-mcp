@@ -38,7 +38,6 @@ export interface FigmaFrameCreatedPayload {
 export interface DevServerInfo {
   url: string;
   port: number;
-  process?: unknown;
   isExternal: boolean;
 }
 
