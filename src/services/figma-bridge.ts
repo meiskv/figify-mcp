@@ -1,4 +1,4 @@
-import { type WebSocket, WebSocketServer } from "ws";
+import { type WebSocket as WS, WebSocket, WebSocketServer } from "ws";
 import type {
   FigmaFrameCreatedPayload,
   FigmaLayerTree,
@@ -10,16 +10,25 @@ import type {
 const WEBSOCKET_PORT = 19407;
 const REQUEST_TIMEOUT = 30000; // 30 seconds
 
-type PendingResolve<T> = {
-  resolve: (value: T) => void;
-  reject: (error: Error) => void;
-};
+// Union type so both request kinds share one map and one cleanup path.
+type PendingResolve =
+  | {
+      kind: "frame";
+      resolve: (value: FigmaFrameCreatedPayload) => void;
+      reject: (error: Error) => void;
+      timer: ReturnType<typeof setTimeout>;
+    }
+  | {
+      kind: "layers";
+      resolve: (value: LayersCreatedPayload) => void;
+      reject: (error: Error) => void;
+      timer: ReturnType<typeof setTimeout>;
+    };
 
 export class FigmaBridge {
   private wss: WebSocketServer | null = null;
-  private client: WebSocket | null = null;
-  private pendingRequests = new Map<string, PendingResolve<FigmaFrameCreatedPayload>>();
-  private pendingLayerRequests = new Map<string, PendingResolve<LayersCreatedPayload>>();
+  private client: WS | null = null;
+  private pendingRequests = new Map<string, PendingResolve>();
   private messageId = 0;
 
   async start(): Promise<void> {
@@ -28,6 +37,12 @@ export class FigmaBridge {
         this.wss = new WebSocketServer({ port: WEBSOCKET_PORT });
 
         this.wss.on("connection", (ws) => {
+          // Close any existing connection rather than silently orphaning it.
+          if (this.client && this.client.readyState === WebSocket.OPEN) {
+            console.error("[FigmaBridge] Replacing existing Figma plugin connection");
+            this.client.close();
+          }
+
           console.error("[FigmaBridge] Figma plugin connected");
           this.client = ws;
 
@@ -37,7 +52,9 @@ export class FigmaBridge {
 
           ws.on("close", () => {
             console.error("[FigmaBridge] Figma plugin disconnected");
-            this.client = null;
+            if (this.client === ws) {
+              this.client = null;
+            }
           });
 
           ws.on("error", (error) => {
@@ -61,68 +78,67 @@ export class FigmaBridge {
   }
 
   async stop(): Promise<void> {
+    // Reject all outstanding requests so callers don't hang.
+    this.rejectAllPending(new Error("FigmaBridge is shutting down"));
+
     return new Promise((resolve) => {
+      const closeServer = () => {
+        if (this.wss) {
+          this.wss.close(() => {
+            console.error("[FigmaBridge] WebSocket server stopped");
+            resolve();
+          });
+          this.wss = null;
+        } else {
+          resolve();
+        }
+      };
+
       if (this.client) {
+        // Wait for the client socket to fully close before closing the server.
+        this.client.once("close", closeServer);
         this.client.close();
         this.client = null;
-      }
-
-      if (this.wss) {
-        this.wss.close(() => {
-          console.error("[FigmaBridge] WebSocket server stopped");
-          resolve();
-        });
       } else {
-        resolve();
+        closeServer();
       }
     });
   }
 
   isConnected(): boolean {
-    return this.client !== null && this.client.readyState === 1; // WebSocket.OPEN
+    return this.client !== null && this.client.readyState === WebSocket.OPEN;
   }
 
   async createFrame(name: string, screenshots: Screenshot[]): Promise<FigmaFrameCreatedPayload> {
     if (!this.isConnected()) {
-      return {
-        frameId: "",
-        success: false,
-        error: "Figma plugin is not connected",
-      };
+      return { frameId: "", success: false, error: "Figma plugin is not connected" };
     }
 
     const id = this.generateMessageId();
     const message: FigmaMessage = {
       id,
       type: "CREATE_FRAME",
-      payload: {
-        name,
-        screenshots,
-      },
+      payload: { name, screenshots },
     };
 
     return new Promise((resolve, reject) => {
-      // Set up timeout
-      const timeout = setTimeout(() => {
+      const timer = setTimeout(() => {
         this.pendingRequests.delete(id);
         reject(new Error("Request timed out waiting for Figma plugin response"));
       }, REQUEST_TIMEOUT);
 
-      // Store pending request
-      this.pendingRequests.set(id, {
-        resolve: (result) => {
-          clearTimeout(timeout);
-          resolve(result);
-        },
-        reject: (error) => {
-          clearTimeout(timeout);
-          reject(error);
-        },
-      });
+      this.pendingRequests.set(id, { kind: "frame", resolve, reject, timer });
 
-      // Send message - client is guaranteed to exist since we checked isConnected()
-      if (this.client) {
+      // Guard against the client disconnecting between the isConnected() check and send().
+      try {
+        if (!this.client || this.client.readyState !== WebSocket.OPEN) {
+          throw new Error("Figma plugin disconnected before message could be sent");
+        }
         this.client.send(JSON.stringify(message));
+      } catch (error) {
+        clearTimeout(timer);
+        this.pendingRequests.delete(id);
+        reject(error instanceof Error ? error : new Error(String(error)));
       }
     });
   }
@@ -141,31 +157,26 @@ export class FigmaBridge {
     const message: FigmaMessage = {
       id,
       type: "CREATE_LAYERS",
-      payload: {
-        name,
-        layers,
-      },
+      payload: { name, layers },
     };
 
     return new Promise((resolve, reject) => {
-      const timeout = setTimeout(() => {
-        this.pendingLayerRequests.delete(id);
+      const timer = setTimeout(() => {
+        this.pendingRequests.delete(id);
         reject(new Error("Request timed out waiting for Figma plugin response"));
       }, REQUEST_TIMEOUT);
 
-      this.pendingLayerRequests.set(id, {
-        resolve: (result) => {
-          clearTimeout(timeout);
-          resolve(result);
-        },
-        reject: (error) => {
-          clearTimeout(timeout);
-          reject(error);
-        },
-      });
+      this.pendingRequests.set(id, { kind: "layers", resolve, reject, timer });
 
-      if (this.client) {
+      try {
+        if (!this.client || this.client.readyState !== WebSocket.OPEN) {
+          throw new Error("Figma plugin disconnected before message could be sent");
+        }
         this.client.send(JSON.stringify(message));
+      } catch (error) {
+        clearTimeout(timer);
+        this.pendingRequests.delete(id);
+        reject(error instanceof Error ? error : new Error(String(error)));
       }
     });
   }
@@ -176,36 +187,39 @@ export class FigmaBridge {
 
       if (message.type === "FRAME_CREATED") {
         const pending = this.pendingRequests.get(message.id);
-        if (pending) {
+        if (pending?.kind === "frame") {
           this.pendingRequests.delete(message.id);
+          clearTimeout(pending.timer);
           pending.resolve(message.payload as FigmaFrameCreatedPayload);
         }
       } else if (message.type === "LAYERS_CREATED") {
-        const pending = this.pendingLayerRequests.get(message.id);
-        if (pending) {
-          this.pendingLayerRequests.delete(message.id);
+        const pending = this.pendingRequests.get(message.id);
+        if (pending?.kind === "layers") {
+          this.pendingRequests.delete(message.id);
+          clearTimeout(pending.timer);
           pending.resolve(message.payload as LayersCreatedPayload);
         }
       } else if (message.type === "ERROR") {
-        // Check both pending request maps
         const pending = this.pendingRequests.get(message.id);
-        const pendingLayers = this.pendingLayerRequests.get(message.id);
-        const payload = message.payload as { error: string };
-
         if (pending) {
           this.pendingRequests.delete(message.id);
+          clearTimeout(pending.timer);
+          const payload = message.payload as { error: string };
           pending.reject(new Error(payload.error));
         }
-        if (pendingLayers) {
-          this.pendingLayerRequests.delete(message.id);
-          pendingLayers.reject(new Error(payload.error));
-        }
       } else if (message.type === "PING") {
-        // Respond to ping with pong
         this.client?.send(JSON.stringify({ id: message.id, type: "PONG", payload: {} }));
       }
     } catch (error) {
       console.error("[FigmaBridge] Failed to parse message:", error);
+    }
+  }
+
+  private rejectAllPending(error: Error): void {
+    for (const [id, pending] of this.pendingRequests) {
+      clearTimeout(pending.timer);
+      pending.reject(error);
+      this.pendingRequests.delete(id);
     }
   }
 
