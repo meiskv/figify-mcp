@@ -1,4 +1,9 @@
 import { type WebSocket as WS, WebSocket, WebSocketServer } from "ws";
+import {
+  FIGMA_REQUEST_TIMEOUT,
+  MAX_PENDING_REQUESTS,
+  WEBSOCKET_PORT,
+} from "../config/constants.js";
 import type {
   FigmaFrameCreatedPayload,
   FigmaLayerTree,
@@ -6,9 +11,6 @@ import type {
   LayersCreatedPayload,
   Screenshot,
 } from "../types/index.js";
-
-const WEBSOCKET_PORT = 19407;
-const REQUEST_TIMEOUT = 30000; // 30 seconds
 
 // Union type so both request kinds share one map and one cleanup path.
 type PendingResolve =
@@ -114,6 +116,14 @@ export class FigmaBridge {
       return { frameId: "", success: false, error: "Figma plugin is not connected" };
     }
 
+    if (this.pendingRequests.size >= MAX_PENDING_REQUESTS) {
+      return {
+        frameId: "",
+        success: false,
+        error: `Too many pending requests (${this.pendingRequests.size}/${MAX_PENDING_REQUESTS})`,
+      };
+    }
+
     const id = this.generateMessageId();
     const message: FigmaMessage = {
       id,
@@ -125,7 +135,7 @@ export class FigmaBridge {
       const timer = setTimeout(() => {
         this.pendingRequests.delete(id);
         reject(new Error("Request timed out waiting for Figma plugin response"));
-      }, REQUEST_TIMEOUT);
+      }, FIGMA_REQUEST_TIMEOUT);
 
       this.pendingRequests.set(id, { kind: "frame", resolve, reject, timer });
 
@@ -153,6 +163,15 @@ export class FigmaBridge {
       };
     }
 
+    if (this.pendingRequests.size >= MAX_PENDING_REQUESTS) {
+      return {
+        frameId: "",
+        success: false,
+        layersCreated: 0,
+        error: `Too many pending requests (${this.pendingRequests.size}/${MAX_PENDING_REQUESTS})`,
+      };
+    }
+
     const id = this.generateMessageId();
     const message: FigmaMessage = {
       id,
@@ -164,7 +183,7 @@ export class FigmaBridge {
       const timer = setTimeout(() => {
         this.pendingRequests.delete(id);
         reject(new Error("Request timed out waiting for Figma plugin response"));
-      }, REQUEST_TIMEOUT);
+      }, FIGMA_REQUEST_TIMEOUT);
 
       this.pendingRequests.set(id, { kind: "layers", resolve, reject, timer });
 

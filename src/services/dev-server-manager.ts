@@ -1,12 +1,14 @@
 import { type ChildProcess, spawn } from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
+import {
+  DEV_SERVER_POLL_INTERVAL,
+  DEV_SERVER_PORT,
+  DEV_SERVER_READY_SETTLE_DELAY,
+  DEV_SERVER_STARTUP_TIMEOUT,
+  EXTERNAL_SERVER_TIMEOUT,
+} from "../config/constants.js";
 import type { DevServerInfo } from "../types/index.js";
-
-const DEFAULT_PORT = 3000;
-const SERVER_READY_TIMEOUT = 60000; // 60 seconds
-const POLL_INTERVAL_MS = 1000;
-const READY_SETTLE_DELAY_MS = 1000;
 
 export class DevServerManager {
   private serverProcess: ChildProcess | null = null;
@@ -113,11 +115,11 @@ export class DevServerManager {
    * Ensure a dev server is running for the project.
    */
   async ensureDevServer(projectPath: string): Promise<DevServerInfo> {
-    const externalServer = await this.checkExternalServer(DEFAULT_PORT);
+    const externalServer = await this.checkExternalServer(DEV_SERVER_PORT);
     if (externalServer) return externalServer;
 
     if (this.serverProcess && this.currentProjectPath === projectPath) {
-      return { url: `http://localhost:${DEFAULT_PORT}`, port: DEFAULT_PORT, isExternal: false };
+      return { url: `http://localhost:${DEV_SERVER_PORT}`, port: DEV_SERVER_PORT, isExternal: false };
     }
 
     await this.stopServer();
@@ -131,7 +133,7 @@ export class DevServerManager {
     try {
       const response = await fetch(`http://localhost:${port}`, {
         method: "HEAD",
-        signal: AbortSignal.timeout(2000),
+        signal: AbortSignal.timeout(EXTERNAL_SERVER_TIMEOUT),
       });
 
       // 404 is acceptable — the server is up, the route just doesn't exist yet
@@ -171,12 +173,12 @@ export class DevServerManager {
       };
 
       const tryResolve = async () => {
-        const server = await this.checkExternalServer(DEFAULT_PORT);
+        const server = await this.checkExternalServer(DEV_SERVER_PORT);
         if (server) {
           settle(() =>
             resolve({
-              url: `http://localhost:${DEFAULT_PORT}`,
-              port: DEFAULT_PORT,
+              url: `http://localhost:${DEV_SERVER_PORT}`,
+              port: DEV_SERVER_PORT,
               isExternal: false,
             }),
           );
@@ -185,9 +187,9 @@ export class DevServerManager {
 
       const timeoutHandle = setTimeout(() => {
         settle(() => reject(new Error("Dev server startup timed out")));
-      }, SERVER_READY_TIMEOUT);
+      }, DEV_SERVER_STARTUP_TIMEOUT);
 
-      const pollHandle = setInterval(tryResolve, POLL_INTERVAL_MS);
+      const pollHandle = setInterval(tryResolve, DEV_SERVER_POLL_INTERVAL);
 
       serverProcess.stdout?.on("data", async (data: Buffer) => {
         const output = data.toString();
@@ -202,13 +204,13 @@ export class DevServerManager {
 
           while (retries < maxRetries && !serverReady) {
             await new Promise((r) => setTimeout(r, 100 * 2 ** retries));
-            const server = await this.checkExternalServer(DEFAULT_PORT);
+            const server = await this.checkExternalServer(DEV_SERVER_PORT);
             if (server) {
               serverReady = true;
               settle(() =>
                 resolve({
-                  url: `http://localhost:${DEFAULT_PORT}`,
-                  port: DEFAULT_PORT,
+                  url: `http://localhost:${DEV_SERVER_PORT}`,
+                  port: DEV_SERVER_PORT,
                   isExternal: false,
                 }),
               );

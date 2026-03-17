@@ -1,11 +1,14 @@
 import type { Browser, Page } from "playwright";
 import { chromium } from "playwright";
+import {
+  ANIMATION_SETTLE_DELAY,
+  DEVICE_SCALE_FACTOR,
+  NETWORK_IDLE_TIMEOUT,
+  PAGE_LOAD_TIMEOUT,
+} from "../config/constants.js";
 import { getViewport } from "../config/viewports.js";
 import type { FigmaLayerTree, FrameLayer, Screenshot, ViewportType } from "../types/index.js";
 import { DOMExtractor } from "./dom-extractor.js";
-
-const PAGE_LOAD_TIMEOUT = 30000; // 30 seconds
-const NETWORK_IDLE_TIMEOUT = 5000; // 5 seconds
 
 export interface CaptureWithLayersResult {
   layerTree: FigmaLayerTree;
@@ -50,7 +53,7 @@ export class ScreenshotService {
         width: viewport.width,
         height: viewport.height,
       },
-      deviceScaleFactor: 2, // Retina quality
+      deviceScaleFactor: DEVICE_SCALE_FACTOR,
     });
 
     const page = await context.newPage();
@@ -66,7 +69,7 @@ export class ScreenshotService {
       await this.waitForNetworkIdle(page);
 
       // Wait a bit more for any animations to settle
-      await page.waitForTimeout(500);
+      await page.waitForTimeout(ANIMATION_SETTLE_DELAY);
 
       // Take full-page screenshot
       const buffer = await page.screenshot({
@@ -126,7 +129,7 @@ export class ScreenshotService {
         width: viewport.width,
         height: viewport.height,
       },
-      deviceScaleFactor: 2,
+      deviceScaleFactor: DEVICE_SCALE_FACTOR,
     });
 
     const page = await context.newPage();
@@ -138,7 +141,7 @@ export class ScreenshotService {
       });
 
       await this.waitForNetworkIdle(page);
-      await page.waitForTimeout(500);
+      await page.waitForTimeout(ANIMATION_SETTLE_DELAY);
 
       // Extract DOM structure
       const rootLayer = await this.domExtractor.extract(page);
