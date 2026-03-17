@@ -86,6 +86,7 @@ export class ScreenshotService {
         data: buffer.toString("base64"),
       };
     } finally {
+      await page.close();
       await context.close();
     }
   }
@@ -171,6 +172,7 @@ export class ScreenshotService {
 
       return { layerTree, screenshot };
     } finally {
+      await page.close();
       await context.close();
     }
   }

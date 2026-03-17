@@ -35,8 +35,15 @@ export class DevServerManager {
 
   /**
    * Convert a file path like @/app/journey/page.tsx to a route like /journey.
+   * Validates path stays within project root.
    */
   filePathToRoute(filePath: string, projectPath: string): string {
+    // Validate path security before processing
+    if (!filePath.startsWith("@/")) {
+      // Only validate absolute paths; @/ aliases are always safe
+      this.validatePathWithinProject(filePath, projectPath);
+    }
+
     let normalized = filePath;
 
     // Strip @/ alias or absolute project prefix
@@ -88,6 +95,21 @@ export class DevServerManager {
   }
 
   /**
+   * Validate that a resolved path stays within the project root.
+   * Prevents path traversal attacks like ../../../etc/passwd
+   */
+  private validatePathWithinProject(filePath: string, projectPath: string): void {
+    const resolvedPath = path.resolve(projectPath, filePath);
+    const resolvedProjectPath = path.resolve(projectPath);
+
+    if (!resolvedPath.startsWith(resolvedProjectPath)) {
+      throw new Error(
+        `Path traversal attempt detected: "${filePath}" resolves outside project root "${projectPath}"`,
+      );
+    }
+  }
+
+  /**
    * Ensure a dev server is running for the project.
    */
   async ensureDevServer(projectPath: string): Promise<DevServerInfo> {
@@ -133,7 +155,6 @@ export class DevServerManager {
       const serverProcess = spawn("npm", ["run", "dev"], {
         cwd: projectPath,
         stdio: ["ignore", "pipe", "pipe"],
-        shell: true,
       });
 
       this.serverProcess = serverProcess;
@@ -174,8 +195,33 @@ export class DevServerManager {
 
         if (output.includes("Ready") || output.includes("localhost:")) {
           // Give the server a moment to fully bind before probing
-          await new Promise((r) => setTimeout(r, READY_SETTLE_DELAY_MS));
-          tryResolve();
+          // Use exponential backoff to ensure port is really listening
+          let retries = 0;
+          const maxRetries = 10;
+          let serverReady = false;
+
+          while (retries < maxRetries && !serverReady) {
+            await new Promise((r) => setTimeout(r, 100 * 2 ** retries));
+            const server = await this.checkExternalServer(DEFAULT_PORT);
+            if (server) {
+              serverReady = true;
+              settle(() =>
+                resolve({
+                  url: `http://localhost:${DEFAULT_PORT}`,
+                  port: DEFAULT_PORT,
+                  isExternal: false,
+                }),
+              );
+            }
+            retries++;
+          }
+
+          if (!serverReady) {
+            console.error(
+              "[DevServerManager] Server reported ready but port not listening after retries",
+            );
+            // Continue with regular polling as fallback
+          }
         }
       });
 
@@ -201,7 +247,9 @@ export class DevServerManager {
   async stopServer(): Promise<void> {
     if (this.serverProcess) {
       console.error("[DevServerManager] Stopping dev server");
-      this.serverProcess.kill();
+      // Use SIGKILL to force termination; SIGTERM alone might not work
+      // for some long-running processes
+      this.serverProcess.kill("SIGKILL");
       this.serverProcess = null;
       this.currentProjectPath = null;
     }
