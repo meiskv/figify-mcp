@@ -1,4 +1,5 @@
 // Layer types for DOM-to-Figma extraction
+import type { ViewportType } from "./index.js";
 
 export type LayerType = "FRAME" | "TEXT" | "RECTANGLE";
 
@@ -6,7 +7,8 @@ export interface FigmaColor {
   r: number;
   g: number;
   b: number;
-  a?: number;
+  /** Alpha channel (0–1). Always present; use 1 as the default. */
+  a: number;
 }
 
 export interface FigmaFill {
@@ -72,9 +74,12 @@ export interface TextLayer extends BaseLayer {
   fontWeight: number;
   textColor: FigmaColor;
   textAlign?: "LEFT" | "CENTER" | "RIGHT" | "JUSTIFIED";
-  lineHeight?: number;
 }
 
+/**
+ * RectangleLayer is defined for completeness but currently not produced
+ * by the DOM extractor. All containers are represented as FrameLayers.
+ */
 export interface RectangleLayer extends BaseLayer {
   type: "RECTANGLE";
   fills?: FigmaFill[];
@@ -88,7 +93,7 @@ export type Layer = FrameLayer | TextLayer | RectangleLayer;
 
 export interface FigmaLayerTree {
   name: string;
-  viewport: string;
+  viewport: ViewportType;
   width: number;
   height: number;
   rootLayer: FrameLayer;

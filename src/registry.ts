@@ -2,7 +2,11 @@ import { z } from "zod";
 
 export const ViewportSchema = z.enum(["desktop", "mobile"]);
 
-export const ImportPageInputSchema = z.object({
+// ──────────────────────────────────────────────────────────────────
+// Shared input schema for tools that accept a page source + viewports
+// ──────────────────────────────────────────────────────────────────
+
+const PageSourceSchema = z.object({
   source: z.string().describe("File path (@/app/page.tsx) or URL (localhost:3000)"),
   viewports: z
     .array(ViewportSchema)
@@ -14,7 +18,10 @@ export const ImportPageInputSchema = z.object({
     .describe("Next.js project root path. Auto-detected if not provided."),
 });
 
-export const CheckConnectionInputSchema = z.object({});
+export const ImportPageInputSchema = PageSourceSchema;
+export const ImportPageAsLayersInputSchema = PageSourceSchema;
+
+export const CheckConnectionInputSchema = z.object({}).strict();
 
 export const CaptureScreenshotInputSchema = z.object({
   url: z.string().describe("URL to capture"),
@@ -22,18 +29,6 @@ export const CaptureScreenshotInputSchema = z.object({
     .array(ViewportSchema)
     .default(["desktop"])
     .describe('Viewports to capture. Default: ["desktop"]'),
-});
-
-export const ImportPageAsLayersInputSchema = z.object({
-  source: z.string().describe("File path (@/app/page.tsx) or URL (localhost:3000)"),
-  viewports: z
-    .array(ViewportSchema)
-    .default(["desktop"])
-    .describe('Viewports to capture. Default: ["desktop"]'),
-  projectPath: z
-    .string()
-    .optional()
-    .describe("Next.js project root path. Auto-detected if not provided."),
 });
 
 export const DebugExtractionInputSchema = z.object({
@@ -84,7 +79,3 @@ export const TOOLS: ToolDefinition[] = [
     inputSchema: DebugExtractionInputSchema,
   },
 ];
-
-export function getToolByName(name: string): ToolDefinition | undefined {
-  return TOOLS.find((tool) => tool.name === name);
-}

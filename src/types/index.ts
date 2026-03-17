@@ -5,28 +5,16 @@ export interface ViewportConfig {
 }
 
 export interface Screenshot {
-  viewport: string;
+  viewport: ViewportType; // narrowed from string
   width: number;
   height: number;
-  data: string; // base64 encoded
-}
-
-export interface ImportPageResult {
-  success: boolean;
-  screenshots: Screenshot[];
-  figmaFrameId?: string;
-  error?: string;
+  data: string; // base64 encoded PNG
 }
 
 export interface FigmaMessage {
   id: string;
   type: string;
   payload: unknown;
-}
-
-export interface FigmaCreateFramePayload {
-  name: string;
-  screenshots: Screenshot[];
 }
 
 export interface FigmaFrameCreatedPayload {

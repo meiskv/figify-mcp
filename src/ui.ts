@@ -16,26 +16,16 @@ export const colors = {
 
 const c = colors;
 
-// Strip ANSI escape codes for length calculation
+// Strip ANSI escape codes for length calculation.
+// Covers all standard ANSI CSI sequences (not just SGR colour codes).
 export function stripAnsi(str: string): string {
-  const ESC = String.fromCharCode(27);
-  const regex = new RegExp(`${ESC}\\[[0-9;]*m`, "g");
-  return str.replace(regex, "");
+  // biome-ignore lint/suspicious/noControlCharactersInRegex: intentional ANSI stripping
+  return str.replace(/\x1b\[[0-9;]*[A-Za-z]/g, "");
 }
 
 // Print text to stdout
 export function print(text: string): void {
-  console.log(text);
-}
-
-// Print centered text
-export function printCentered(text: string, width = 60): void {
-  const lines = text.split("\n");
-  for (const line of lines) {
-    const stripped = stripAnsi(line);
-    const padding = Math.max(0, Math.floor((width - stripped.length) / 2));
-    console.log(" ".repeat(padding) + line);
-  }
+  process.stdout.write(`${text}\n`);
 }
 
 // Clear the terminal screen
@@ -43,44 +33,28 @@ export function clearScreen(): void {
   process.stdout.write("\x1b[2J\x1b[H");
 }
 
-// Create a box with title and content
+// Create a box with title and content.
+// The title is centred within the box using the actual rendered width.
 export function box(
   title: string,
   color: keyof typeof colors = "cyan",
   width = 60,
 ): { top: string; titleLine: string; bottom: string } {
   const borderColor = c[color];
-  const borderWidth = width;
-  const padding = "─".repeat(borderWidth - 4);
+  // ─ is a 3-byte UTF-8 char; the box borders use box-drawing chars that each
+  // occupy one visual cell, so we repeat by (width - 2) for inner padding.
+  const inner = "─".repeat(width - 2);
+
+  const visibleTitle = stripAnsi(title);
+  const innerWidth = width - 2; // space between the two │ chars
+  const leftPad = Math.max(0, Math.floor((innerWidth - visibleTitle.length) / 2));
+  const rightPad = Math.max(0, innerWidth - visibleTitle.length - leftPad);
 
   return {
-    top: `${borderColor}┌${padding}┐${c.reset}`,
-    titleLine: `${borderColor}│${c.reset}              ${c.bold}${title}${c.reset}                    ${borderColor}│${c.reset}`,
-    bottom: `${borderColor}└${padding}┘${c.reset}`,
+    top: `${borderColor}┌${inner}┐${c.reset}`,
+    titleLine: `${borderColor}│${c.reset}${" ".repeat(leftPad)}${c.bold}${title}${c.reset}${" ".repeat(rightPad)}${borderColor}│${c.reset}`,
+    bottom: `${borderColor}└${inner}┘${c.reset}`,
   };
-}
-
-// Display a menu with numbered options
-export interface MenuOption {
-  key: string;
-  label: string;
-  description?: string;
-}
-
-export function displayMenu(title: string, options: MenuOption[], width = 60): void {
-  const b = box(title, "cyan", width);
-  print(b.top);
-  print(b.titleLine);
-  print(b.bottom);
-  print("");
-
-  for (const option of options) {
-    print(`  ${c.cyan}[${option.key}]${c.reset} ${option.label}`);
-    if (option.description) {
-      print(`     ${c.dim}${option.description}${c.reset}`);
-    }
-  }
-  print("");
 }
 
 // Display numbered steps
@@ -119,7 +93,10 @@ export function displaySteps(
 export function displayCodeBlock(lines: string[]): void {
   print(`${c.dim}  ┌─────────────────────────────────────────────────────┐${c.reset}`);
   for (const line of lines) {
-    print(`${c.dim}  │${c.reset} ${line.padEnd(51)}${c.dim}│${c.reset}`);
+    // pad to fill the fixed-width box (53 visible chars between │ chars)
+    const visible = stripAnsi(line);
+    const padded = line + " ".repeat(Math.max(0, 53 - visible.length));
+    print(`${c.dim}  │${c.reset} ${padded}${c.dim}│${c.reset}`);
   }
   print(`${c.dim}  └─────────────────────────────────────────────────────┘${c.reset}`);
   print("");
