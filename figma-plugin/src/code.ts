@@ -349,7 +349,12 @@ async function createNode(layer: Layer, parent: FrameNode): Promise<number> {
       if (rectLayer.effects && rectLayer.effects.length > 0) {
         rect.effects = rectLayer.effects.map((effect) => ({
           type: "DROP_SHADOW" as const,
-          color: { r: effect.color.r, g: effect.color.g, b: effect.color.b, a: effect.color.a ?? 0.25 },
+          color: {
+            r: effect.color.r,
+            g: effect.color.g,
+            b: effect.color.b,
+            a: effect.color.a ?? 0.25,
+          },
           offset: { x: effect.offset.x, y: effect.offset.y },
           radius: effect.radius,
           spread: effect.spread ?? 0,
@@ -399,7 +404,12 @@ async function createNode(layer: Layer, parent: FrameNode): Promise<number> {
       if (frameLayer.effects && frameLayer.effects.length > 0) {
         frame.effects = frameLayer.effects.map((effect) => ({
           type: "DROP_SHADOW" as const,
-          color: { r: effect.color.r, g: effect.color.g, b: effect.color.b, a: effect.color.a ?? 0.25 },
+          color: {
+            r: effect.color.r,
+            g: effect.color.g,
+            b: effect.color.b,
+            a: effect.color.a ?? 0.25,
+          },
           offset: { x: effect.offset.x, y: effect.offset.y },
           radius: effect.radius,
           spread: effect.spread ?? 0,
