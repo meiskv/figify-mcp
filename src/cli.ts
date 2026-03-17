@@ -14,6 +14,7 @@ import {
   displayWarning,
   print,
 } from "./ui.js";
+import { VERSION } from "./version.js";
 
 const c = colors;
 
@@ -69,25 +70,11 @@ async function waitForKey(prompt: string): Promise<string> {
   });
 }
 
-// Helper function to display error messages during setup
-function showError(message: string): void {
-  displayError(message);
-}
-
-// Helper function to display success messages
-function showSuccess(message: string): void {
-  displaySuccess(message);
-}
-
-// Helper function to display warning messages
-function showWarning(message: string): void {
-  displayWarning(message);
-}
-
-// Helper function to display info messages
-function showInfo(message: string): void {
-  displayInfo(message);
-}
+// Alias display functions for brevity
+const showError = displayError;
+const showSuccess = displaySuccess;
+const showWarning = displayWarning;
+const showInfo = displayInfo;
 
 async function showWelcome(): Promise<void> {
   clearScreen();
@@ -286,7 +273,7 @@ try {
   }
 
   if (args.includes("--version") || args.includes("-v")) {
-    print("figify-mcp v1.6.0");
+    print(`figify-mcp v${VERSION}`);
     process.exit(0);
   }
 

@@ -4,7 +4,6 @@ import * as path from "node:path";
 import {
   DEV_SERVER_POLL_INTERVAL,
   DEV_SERVER_PORT,
-  DEV_SERVER_READY_SETTLE_DELAY,
   DEV_SERVER_STARTUP_TIMEOUT,
   EXTERNAL_SERVER_TIMEOUT,
 } from "../config/constants.js";
@@ -119,7 +118,11 @@ export class DevServerManager {
     if (externalServer) return externalServer;
 
     if (this.serverProcess && this.currentProjectPath === projectPath) {
-      return { url: `http://localhost:${DEV_SERVER_PORT}`, port: DEV_SERVER_PORT, isExternal: false };
+      return {
+        url: `http://localhost:${DEV_SERVER_PORT}`,
+        port: DEV_SERVER_PORT,
+        isExternal: false,
+      };
     }
 
     await this.stopServer();
