@@ -4,6 +4,40 @@
     <meta charset="utf-8" />
     <title>figify-mcp</title>
     <style>
+      :root {
+        --bg: #ffffff;
+        --text: #333333;
+        --text-muted: #666666;
+        --surface: #f5f5f5;
+        --log-bg: #1e1e1e;
+        --log-text: #d4d4d4;
+        --btn-bg: #18a0fb;
+        --btn-bg-hover: #0d8de8;
+        --btn-disabled: #cccccc;
+        --dot-disconnected: #ff4444;
+        --dot-connected: #22cc44;
+        --dot-connecting: #ffaa00;
+        --log-error: #ff6b6b;
+        --log-success: #69db7c;
+        --log-info: #74c0fc;
+        --toggle-bg: #e0e0e0;
+        --toggle-icon: #555555;
+      }
+
+      [data-theme="dark"] {
+        --bg: #1e1e2e;
+        --text: #cdd6f4;
+        --text-muted: #a6adc8;
+        --surface: #313244;
+        --log-bg: #11111b;
+        --log-text: #cdd6f4;
+        --btn-bg: #89b4fa;
+        --btn-bg-hover: #74c0fc;
+        --btn-disabled: #45475a;
+        --toggle-bg: #45475a;
+        --toggle-icon: #cdd6f4;
+      }
+
       * {
         margin: 0;
         padding: 0;
@@ -14,8 +48,9 @@
         font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
         font-size: 12px;
         padding: 16px;
-        background: #ffffff;
-        color: #333333;
+        background: var(--bg);
+        color: var(--text);
+        transition: background 0.2s, color 0.2s;
       }
 
       .container {
@@ -24,28 +59,56 @@
         gap: 12px;
       }
 
+      .header {
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-start;
+      }
+
+      .theme-toggle {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 28px;
+        height: 28px;
+        border: none;
+        border-radius: 6px;
+        background: var(--toggle-bg);
+        color: var(--toggle-icon);
+        cursor: pointer;
+        font-size: 14px;
+        padding: 0;
+        flex-shrink: 0;
+        transition: background 0.2s, color 0.2s;
+      }
+
+      .theme-toggle:hover {
+        background: var(--surface);
+      }
+
       .status {
         display: flex;
         align-items: center;
         gap: 8px;
         padding: 8px 12px;
         border-radius: 6px;
-        background: #f5f5f5;
+        background: var(--surface);
+        transition: background 0.2s;
       }
 
       .status-dot {
         width: 8px;
         height: 8px;
         border-radius: 50%;
-        background: #ff4444;
+        background: var(--dot-disconnected);
       }
 
       .status-dot.connected {
-        background: #22cc44;
+        background: var(--dot-connected);
       }
 
       .status-dot.connecting {
-        background: #ffaa00;
+        background: var(--dot-connecting);
         animation: pulse 1s infinite;
       }
 
@@ -60,14 +123,15 @@
       }
 
       .log {
-        background: #1e1e1e;
-        color: #d4d4d4;
+        background: var(--log-bg);
+        color: var(--log-text);
         padding: 12px;
         border-radius: 6px;
         font-family: "SF Mono", Monaco, Consolas, monospace;
         font-size: 11px;
         height: 200px;
         overflow-y: auto;
+        transition: background 0.2s, color 0.2s;
       }
 
       .log-entry {
@@ -76,22 +140,22 @@
       }
 
       .log-entry.error {
-        color: #ff6b6b;
+        color: var(--log-error);
       }
 
       .log-entry.success {
-        color: #69db7c;
+        color: var(--log-success);
       }
 
       .log-entry.info {
-        color: #74c0fc;
+        color: var(--log-info);
       }
 
-      button {
+      button#connectBtn {
         padding: 8px 16px;
         border: none;
         border-radius: 6px;
-        background: #18a0fb;
+        background: var(--btn-bg);
         color: white;
         font-size: 12px;
         font-weight: 500;
@@ -99,12 +163,12 @@
         transition: background 0.2s;
       }
 
-      button:hover {
-        background: #0d8de8;
+      button#connectBtn:hover {
+        background: var(--btn-bg-hover);
       }
 
-      button:disabled {
-        background: #cccccc;
+      button#connectBtn:disabled {
+        background: var(--btn-disabled);
         cursor: not-allowed;
       }
 
@@ -115,16 +179,20 @@
       }
 
       p {
-        color: #666666;
+        color: var(--text-muted);
         line-height: 1.4;
+        transition: color 0.2s;
       }
     </style>
   </head>
   <body>
     <div class="container">
-      <div>
-        <h1>figify-mcp</h1>
-        <p>Connects to the MCP server to receive page screenshots</p>
+      <div class="header">
+        <div>
+          <h1>figify-mcp</h1>
+          <p>Connects to the MCP server to receive page screenshots</p>
+        </div>
+        <button class="theme-toggle" id="themeToggle" title="Toggle dark mode" onclick="toggleTheme()">☀</button>
       </div>
 
       <div class="status">
@@ -365,6 +433,33 @@
           }
         }
       };
+
+      // --- Dark mode ---
+      function applyTheme(dark) {
+        document.body.setAttribute("data-theme", dark ? "dark" : "light");
+        document.getElementById("themeToggle").textContent = dark ? "🌙" : "☀";
+      }
+
+      function toggleTheme() {
+        const isDark = document.body.getAttribute("data-theme") === "dark";
+        const next = !isDark;
+        applyTheme(next);
+        try {
+          localStorage.setItem("figify-theme", next ? "dark" : "light");
+        } catch (_) {}
+      }
+
+      // Initialise theme: stored preference → OS preference → light
+      (function initTheme() {
+        let stored = null;
+        try { stored = localStorage.getItem("figify-theme"); } catch (_) {}
+        if (stored === "dark" || stored === "light") {
+          applyTheme(stored === "dark");
+        } else {
+          const prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
+          applyTheme(prefersDark);
+        }
+      })();
 
       // Auto-connect on load
       setTimeout(connect, 500);

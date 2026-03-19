@@ -1,5 +1,7 @@
 import type { Page } from "playwright";
+import { DOM_EXTRACTION_TIMEOUT } from "../config/constants.js";
 import type { FigmaFill, FrameLayer, Layer, TextLayer } from "../types/layers.js";
+import { metricsService } from "./metrics.js";
 
 // ─── Browser-side extraction script ──────────────────────────────────────────
 // Written as a template literal so regexes don't need double-escaping.
@@ -389,7 +391,16 @@ export class DOMExtractor {
   async extract(page: Page): Promise<FrameLayer> {
     console.error("[DOMExtractor] Extracting DOM structure");
 
-    const rootLayer = (await page.evaluate(EXTRACTION_SCRIPT)) as FrameLayer;
+    // Wrap extraction in timeout to prevent indefinite hangs
+    const extractionPromise = page.evaluate(EXTRACTION_SCRIPT) as Promise<FrameLayer>;
+    const timeoutPromise = new Promise<FrameLayer>((_, reject) =>
+      setTimeout(
+        () => reject(new Error(`DOM extraction timed out after ${DOM_EXTRACTION_TIMEOUT}ms`)),
+        DOM_EXTRACTION_TIMEOUT,
+      ),
+    );
+
+    const rootLayer = await Promise.race([extractionPromise, timeoutPromise]);
     const total = countLayers(rootLayer);
     console.error(`[DOMExtractor] Extracted ${total} layers`);
 

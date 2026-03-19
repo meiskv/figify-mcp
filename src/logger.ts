@@ -3,10 +3,11 @@ import { colors } from "./ui.js";
 const c = colors;
 
 export enum LogLevel {
-  INFO = "info",
-  WARN = "warn",
-  ERROR = "error",
-  SUCCESS = "success",
+  DEBUG = 0,
+  INFO = 1,
+  WARN = 2,
+  ERROR = 3,
+  SUCCESS = 1, // same numeric priority as INFO
 }
 
 export interface LoggerConfig {
@@ -16,7 +17,7 @@ export interface LoggerConfig {
 }
 
 export class Logger {
-  private config: LoggerConfig;
+  private config: Required<LoggerConfig>;
 
   constructor(config?: LoggerConfig) {
     this.config = {
@@ -45,38 +46,47 @@ export class Logger {
     }
   }
 
+  private shouldLog(level: LogLevel): boolean {
+    return level >= this.config.level;
+  }
+
   info(message: string, data?: unknown): void {
-    console.log(this.formatMessage(LogLevel.INFO, message));
-    if (this.config.verbose && data) {
-      console.log(`  ${c.dim}${JSON.stringify(data, null, 2)}${c.reset}`);
+    if (!this.shouldLog(LogLevel.INFO)) return;
+    // Use stderr so CLI output never corrupts the MCP stdio stream.
+    process.stderr.write(`${this.formatMessage(LogLevel.INFO, message)}\n`);
+    if (this.config.verbose && data !== undefined) {
+      process.stderr.write(`  ${c.dim}${JSON.stringify(data, null, 2)}${c.reset}\n`);
     }
   }
 
   warn(message: string, data?: unknown): void {
-    console.warn(this.formatMessage(LogLevel.WARN, message));
-    if (this.config.verbose && data) {
-      console.warn(`  ${c.dim}${JSON.stringify(data, null, 2)}${c.reset}`);
+    if (!this.shouldLog(LogLevel.WARN)) return;
+    process.stderr.write(`${this.formatMessage(LogLevel.WARN, message)}\n`);
+    if (this.config.verbose && data !== undefined) {
+      process.stderr.write(`  ${c.dim}${JSON.stringify(data, null, 2)}${c.reset}\n`);
     }
   }
 
   error(message: string, error?: Error | unknown): void {
-    console.error(this.formatMessage(LogLevel.ERROR, message));
-    if (error) {
+    if (!this.shouldLog(LogLevel.ERROR)) return;
+    process.stderr.write(`${this.formatMessage(LogLevel.ERROR, message)}\n`);
+    if (error !== undefined) {
       if (error instanceof Error) {
-        console.error(`  ${c.dim}${error.message}${c.reset}`);
+        process.stderr.write(`  ${c.dim}${error.message}${c.reset}\n`);
         if (this.config.verbose && error.stack) {
-          console.error(`  ${c.dim}${error.stack}${c.reset}`);
+          process.stderr.write(`  ${c.dim}${error.stack}${c.reset}\n`);
         }
       } else if (this.config.verbose) {
-        console.error(`  ${c.dim}${JSON.stringify(error, null, 2)}${c.reset}`);
+        process.stderr.write(`  ${c.dim}${JSON.stringify(error, null, 2)}${c.reset}\n`);
       }
     }
   }
 
   success(message: string, data?: unknown): void {
-    console.log(this.formatMessage(LogLevel.SUCCESS, message));
-    if (this.config.verbose && data) {
-      console.log(`  ${c.dim}${JSON.stringify(data, null, 2)}${c.reset}`);
+    if (!this.shouldLog(LogLevel.SUCCESS)) return;
+    process.stderr.write(`${this.formatMessage(LogLevel.SUCCESS, message)}\n`);
+    if (this.config.verbose && data !== undefined) {
+      process.stderr.write(`  ${c.dim}${JSON.stringify(data, null, 2)}${c.reset}\n`);
     }
   }
 

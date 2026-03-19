@@ -2,7 +2,11 @@ import { z } from "zod";
 
 export const ViewportSchema = z.enum(["desktop", "mobile"]);
 
-export const ImportPageInputSchema = z.object({
+// ──────────────────────────────────────────────────────────────────
+// Shared input schema for tools that accept a page source + viewports
+// ──────────────────────────────────────────────────────────────────
+
+const PageSourceSchema = z.object({
   source: z.string().describe("File path (@/app/page.tsx) or URL (localhost:3000)"),
   viewports: z
     .array(ViewportSchema)
@@ -14,7 +18,10 @@ export const ImportPageInputSchema = z.object({
     .describe("Next.js project root path. Auto-detected if not provided."),
 });
 
-export const CheckConnectionInputSchema = z.object({});
+export const ImportPageInputSchema = PageSourceSchema;
+export const ImportPageAsLayersInputSchema = PageSourceSchema;
+
+export const CheckConnectionInputSchema = z.object({}).strict();
 
 export const CaptureScreenshotInputSchema = z.object({
   url: z.string().describe("URL to capture"),
@@ -24,20 +31,15 @@ export const CaptureScreenshotInputSchema = z.object({
     .describe('Viewports to capture. Default: ["desktop"]'),
 });
 
-export const ImportPageAsLayersInputSchema = z.object({
-  source: z.string().describe("File path (@/app/page.tsx) or URL (localhost:3000)"),
-  viewports: z
-    .array(ViewportSchema)
-    .default(["desktop"])
-    .describe('Viewports to capture. Default: ["desktop"]'),
-  projectPath: z
-    .string()
-    .optional()
-    .describe("Next.js project root path. Auto-detected if not provided."),
-});
-
 export const DebugExtractionInputSchema = z.object({
   url: z.string().describe("URL to extract DOM from"),
+});
+
+export const ListFramesInputSchema = z.object({
+  pageId: z
+    .string()
+    .optional()
+    .describe("Figma page ID to list frames from. Defaults to the current page."),
 });
 
 export type ImportPageInput = z.infer<typeof ImportPageInputSchema>;
@@ -45,6 +47,7 @@ export type CheckConnectionInput = z.infer<typeof CheckConnectionInputSchema>;
 export type CaptureScreenshotInput = z.infer<typeof CaptureScreenshotInputSchema>;
 export type ImportPageAsLayersInput = z.infer<typeof ImportPageAsLayersInputSchema>;
 export type DebugExtractionInput = z.infer<typeof DebugExtractionInputSchema>;
+export type ListFramesInput = z.infer<typeof ListFramesInputSchema>;
 
 export interface ToolDefinition {
   name: string;
@@ -83,8 +86,10 @@ export const TOOLS: ToolDefinition[] = [
       "Debug tool: Extract DOM from a URL and return the raw layer data with styles. Shows what colors, borders, shadows are being captured.",
     inputSchema: DebugExtractionInputSchema,
   },
+  {
+    name: "list_frames",
+    description:
+      "List all top-level frames on the current Figma page (or a specific page by ID). Returns each frame's ID, name, width, and height.",
+    inputSchema: ListFramesInputSchema,
+  },
 ];
-
-export function getToolByName(name: string): ToolDefinition | undefined {
-  return TOOLS.find((tool) => tool.name === name);
-}

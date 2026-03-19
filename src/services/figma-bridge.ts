@@ -1,16 +1,20 @@
+import { EventEmitter } from "node:events";
 import { type WebSocket as WS, WebSocket, WebSocketServer } from "ws";
+import {
+  FIGMA_REQUEST_TIMEOUT,
+  MAX_PENDING_REQUESTS,
+  WEBSOCKET_PORT,
+} from "../config/constants.js";
 import type {
   FigmaFrameCreatedPayload,
   FigmaLayerTree,
   FigmaMessage,
+  FramesListedPayload,
   LayersCreatedPayload,
   Screenshot,
 } from "../types/index.js";
 
-const WEBSOCKET_PORT = 19407;
-const REQUEST_TIMEOUT = 30000; // 30 seconds
-
-// Union type so both request kinds share one map and one cleanup path.
+// Union type so all request kinds share one map and one cleanup path.
 type PendingResolve =
   | {
       kind: "frame";
@@ -23,13 +27,25 @@ type PendingResolve =
       resolve: (value: LayersCreatedPayload) => void;
       reject: (error: Error) => void;
       timer: ReturnType<typeof setTimeout>;
+    }
+  | {
+      kind: "list_frames";
+      resolve: (value: FramesListedPayload) => void;
+      reject: (error: Error) => void;
+      timer: ReturnType<typeof setTimeout>;
     };
 
-export class FigmaBridge {
+export interface FigmaBridgeEvents {
+  connect: () => void;
+  disconnect: () => void;
+}
+
+export class FigmaBridge extends EventEmitter {
   private wss: WebSocketServer | null = null;
   private client: WS | null = null;
   private pendingRequests = new Map<string, PendingResolve>();
   private messageId = 0;
+  private connectedAt: Date | null = null;
 
   async start(): Promise<void> {
     return new Promise((resolve, reject) => {
@@ -45,6 +61,8 @@ export class FigmaBridge {
 
           console.error("[FigmaBridge] Figma plugin connected");
           this.client = ws;
+          this.connectedAt = new Date();
+          this.emit("connect");
 
           ws.on("message", (data) => {
             this.handleMessage(data.toString());
@@ -54,6 +72,8 @@ export class FigmaBridge {
             console.error("[FigmaBridge] Figma plugin disconnected");
             if (this.client === ws) {
               this.client = null;
+              this.connectedAt = null;
+              this.emit("disconnect");
             }
           });
 
@@ -109,9 +129,25 @@ export class FigmaBridge {
     return this.client !== null && this.client.readyState === WebSocket.OPEN;
   }
 
+  getConnectionInfo(): { connected: boolean; connectedAt: Date | null; pendingRequests: number } {
+    return {
+      connected: this.isConnected(),
+      connectedAt: this.connectedAt,
+      pendingRequests: this.pendingRequests.size,
+    };
+  }
+
   async createFrame(name: string, screenshots: Screenshot[]): Promise<FigmaFrameCreatedPayload> {
     if (!this.isConnected()) {
       return { frameId: "", success: false, error: "Figma plugin is not connected" };
+    }
+
+    if (this.pendingRequests.size >= MAX_PENDING_REQUESTS) {
+      return {
+        frameId: "",
+        success: false,
+        error: `Too many pending requests (${this.pendingRequests.size}/${MAX_PENDING_REQUESTS})`,
+      };
     }
 
     const id = this.generateMessageId();
@@ -125,7 +161,7 @@ export class FigmaBridge {
       const timer = setTimeout(() => {
         this.pendingRequests.delete(id);
         reject(new Error("Request timed out waiting for Figma plugin response"));
-      }, REQUEST_TIMEOUT);
+      }, FIGMA_REQUEST_TIMEOUT);
 
       this.pendingRequests.set(id, { kind: "frame", resolve, reject, timer });
 
@@ -153,6 +189,15 @@ export class FigmaBridge {
       };
     }
 
+    if (this.pendingRequests.size >= MAX_PENDING_REQUESTS) {
+      return {
+        frameId: "",
+        success: false,
+        layersCreated: 0,
+        error: `Too many pending requests (${this.pendingRequests.size}/${MAX_PENDING_REQUESTS})`,
+      };
+    }
+
     const id = this.generateMessageId();
     const message: FigmaMessage = {
       id,
@@ -164,7 +209,7 @@ export class FigmaBridge {
       const timer = setTimeout(() => {
         this.pendingRequests.delete(id);
         reject(new Error("Request timed out waiting for Figma plugin response"));
-      }, REQUEST_TIMEOUT);
+      }, FIGMA_REQUEST_TIMEOUT);
 
       this.pendingRequests.set(id, { kind: "layers", resolve, reject, timer });
 

@@ -14,16 +14,22 @@ import type { FigmaBridge } from "../services/figma-bridge.js";
 import type { ScreenshotService } from "../services/screenshot-service.js";
 import type { FigmaLayerTree, Screenshot, ViewportType } from "../types/index.js";
 import { zodToJsonSchema } from "../utils/zod-to-json-schema.js";
+import {
+  type ToolResult,
+  checkFigmaConnection,
+  errorResult,
+  extractPageName,
+  parseInput,
+  successResult,
+  summarizeLayers,
+} from "./shared.js";
+
+export type { ToolResult };
 
 export interface ToolContext {
   figmaBridge: FigmaBridge;
   devServerManager: DevServerManager;
   screenshotService: ScreenshotService;
-}
-
-export interface ToolResult {
-  content: Array<{ type: "text"; text: string }>;
-  isError?: boolean;
 }
 
 export function getToolDefinitions() {
@@ -51,46 +57,30 @@ export async function handleToolCall(
     case "debug_extraction":
       return handleDebugExtraction(args as DebugExtractionInput, context);
     default:
-      return {
-        content: [{ type: "text", text: `Unknown tool: ${name}` }],
-        isError: true,
-      };
+      return errorResult(`Unknown tool: ${name}`);
   }
 }
 
 async function handleImportPage(input: ImportPageInput, context: ToolContext): Promise<ToolResult> {
-  const parsed = ImportPageInputSchema.safeParse(input);
-  if (!parsed.success) {
-    return {
-      content: [{ type: "text", text: `Invalid input: ${parsed.error.message}` }],
-      isError: true,
-    };
+  let parsed: { source: string; viewports: ViewportType[]; projectPath?: string };
+  try {
+    parsed = parseInput(ImportPageInputSchema, input) as typeof parsed;
+  } catch (error) {
+    return errorResult(error instanceof Error ? error.message : "Invalid input");
   }
 
-  const { source, viewports, projectPath } = parsed.data;
+  const { source, viewports, projectPath } = parsed;
 
   // Check Figma connection first
-  if (!context.figmaBridge.isConnected()) {
-    return {
-      content: [
-        {
-          type: "text",
-          text: "Figma plugin is not connected. Please open Figma and run the figify-mcp plugin first.",
-        },
-      ],
-      isError: true,
-    };
-  }
+  const connCheck = checkFigmaConnection(context.figmaBridge);
+  if (connCheck) return connCheck;
 
   try {
-    // Resolve URL from source
+    // Resolve URL and capture screenshots for each viewport
     const url = await context.devServerManager.resolveToUrl(source, projectPath);
-
-    // Capture screenshots for each viewport
     const screenshots: Screenshot[] = [];
     for (const viewport of viewports as ViewportType[]) {
-      const screenshot = await context.screenshotService.capture(url, viewport);
-      screenshots.push(screenshot);
+      screenshots.push(await context.screenshotService.capture(url, viewport));
     }
 
     // Send to Figma
@@ -98,26 +88,15 @@ async function handleImportPage(input: ImportPageInput, context: ToolContext): P
     const result = await context.figmaBridge.createFrame(pageName, screenshots);
 
     if (!result.success) {
-      return {
-        content: [{ type: "text", text: `Failed to create Figma frame: ${result.error}` }],
-        isError: true,
-      };
+      return errorResult(`Failed to create Figma frame: ${result.error}`);
     }
 
-    return {
-      content: [
-        {
-          type: "text",
-          text: `Successfully imported "${pageName}" to Figma!\n\nFrame ID: ${result.frameId}\nViewports: ${viewports.join(", ")}\nScreenshots: ${screenshots.length}`,
-        },
-      ],
-    };
+    return successResult(
+      `Successfully imported "${pageName}" to Figma!\n\nFrame ID: ${result.frameId}\nViewports: ${viewports.join(", ")}\nScreenshots: ${screenshots.length}`,
+    );
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    return {
-      content: [{ type: "text", text: `Error importing page: ${message}` }],
-      isError: true,
-    };
+    return errorResult(`Error importing page: ${message}`);
   }
 }
 
@@ -125,37 +104,24 @@ async function handleImportPageAsLayers(
   input: ImportPageAsLayersInput,
   context: ToolContext,
 ): Promise<ToolResult> {
-  const parsed = ImportPageAsLayersInputSchema.safeParse(input);
-  if (!parsed.success) {
-    return {
-      content: [{ type: "text", text: `Invalid input: ${parsed.error.message}` }],
-      isError: true,
-    };
+  let parsed: { source: string; viewports: ViewportType[]; projectPath?: string };
+  try {
+    parsed = parseInput(ImportPageAsLayersInputSchema, input) as typeof parsed;
+  } catch (error) {
+    return errorResult(error instanceof Error ? error.message : "Invalid input");
   }
 
-  const { source, viewports, projectPath } = parsed.data;
+  const { source, viewports, projectPath } = parsed;
 
-  // Check Figma connection first
-  if (!context.figmaBridge.isConnected()) {
-    return {
-      content: [
-        {
-          type: "text",
-          text: "Figma plugin is not connected. Please open Figma and run the figify-mcp plugin first.",
-        },
-      ],
-      isError: true,
-    };
-  }
+  const connCheck = checkFigmaConnection(context.figmaBridge);
+  if (connCheck) return connCheck;
 
   try {
-    // Resolve URL from source
     const url = await context.devServerManager.resolveToUrl(source, projectPath);
     const pageName = extractPageName(source);
 
-    // Capture with layers for each viewport
     const layerTrees: FigmaLayerTree[] = [];
-    for (const viewport of viewports as ViewportType[]) {
+    for (const viewport of viewports) {
       const { layerTree } = await context.screenshotService.captureWithLayers(
         url,
         viewport,
@@ -164,82 +130,55 @@ async function handleImportPageAsLayers(
       layerTrees.push(layerTree);
     }
 
-    // Send layers to Figma
     const result = await context.figmaBridge.createLayers(pageName, layerTrees);
 
     if (!result.success) {
-      return {
-        content: [{ type: "text", text: `Failed to create Figma layers: ${result.error}` }],
-        isError: true,
-      };
+      return errorResult(`Failed to create Figma layers: ${result.error}`);
     }
 
-    return {
-      content: [
-        {
-          type: "text",
-          text: `Successfully imported "${pageName}" as editable layers to Figma!\n\nFrame ID: ${result.frameId}\nViewports: ${viewports.join(", ")}\nLayers created: ${result.layersCreated}`,
-        },
-      ],
-    };
+    return successResult(
+      `Successfully imported "${pageName}" as editable layers to Figma!\n\nFrame ID: ${result.frameId}\nViewports: ${viewports.join(", ")}\nLayers created: ${result.layersCreated}`,
+    );
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    return {
-      content: [{ type: "text", text: `Error importing page as layers: ${message}` }],
-      isError: true,
-    };
+    return errorResult(`Error importing page as layers: ${message}`);
   }
 }
 
 async function handleCheckConnection(context: ToolContext): Promise<ToolResult> {
   const connected = context.figmaBridge.isConnected();
-  return {
-    content: [
-      {
-        type: "text",
-        text: connected
-          ? "Figma plugin is connected and ready."
-          : "Figma plugin is not connected. Please open Figma and run the figify-mcp plugin.",
-      },
-    ],
-  };
+  return successResult(
+    connected
+      ? "Figma plugin is connected and ready."
+      : "Figma plugin is not connected. Please open Figma and run the figify-mcp plugin.",
+  );
 }
 
 async function handleCaptureScreenshot(
   input: CaptureScreenshotInput,
   context: ToolContext,
 ): Promise<ToolResult> {
-  const parsed = CaptureScreenshotInputSchema.safeParse(input);
-  if (!parsed.success) {
-    return {
-      content: [{ type: "text", text: `Invalid input: ${parsed.error.message}` }],
-      isError: true,
-    };
+  let parsed: { url: string; viewports: ViewportType[] };
+  try {
+    parsed = parseInput(CaptureScreenshotInputSchema, input) as typeof parsed;
+  } catch (error) {
+    return errorResult(error instanceof Error ? error.message : "Invalid input");
   }
 
-  const { url, viewports } = parsed.data;
+  const { url, viewports } = parsed;
 
   try {
     const screenshots: Screenshot[] = [];
-    for (const viewport of viewports as ViewportType[]) {
-      const screenshot = await context.screenshotService.capture(url, viewport);
-      screenshots.push(screenshot);
+    for (const viewport of viewports) {
+      screenshots.push(await context.screenshotService.capture(url, viewport));
     }
 
-    return {
-      content: [
-        {
-          type: "text",
-          text: `Captured ${screenshots.length} screenshot(s):\n${screenshots.map((s) => `- ${s.viewport}: ${s.width}x${s.height}`).join("\n")}`,
-        },
-      ],
-    };
+    return successResult(
+      `Captured ${screenshots.length} screenshot(s):\n${screenshots.map((s) => `- ${s.viewport}: ${s.width}x${s.height}`).join("\n")}`,
+    );
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    return {
-      content: [{ type: "text", text: `Error capturing screenshot: ${message}` }],
-      isError: true,
-    };
+    return errorResult(`Error capturing screenshot: ${message}`);
   }
 }
 
@@ -247,15 +186,14 @@ async function handleDebugExtraction(
   input: DebugExtractionInput,
   context: ToolContext,
 ): Promise<ToolResult> {
-  const parsed = DebugExtractionInputSchema.safeParse(input);
-  if (!parsed.success) {
-    return {
-      content: [{ type: "text", text: `Invalid input: ${parsed.error.message}` }],
-      isError: true,
-    };
+  let parsed: { url: string };
+  try {
+    parsed = parseInput(DebugExtractionInputSchema, input) as typeof parsed;
+  } catch (error) {
+    return errorResult(error instanceof Error ? error.message : "Invalid input");
   }
 
-  const { url } = parsed.data;
+  const { url } = parsed;
 
   try {
     const { layerTree } = await context.screenshotService.captureWithLayers(
@@ -264,69 +202,13 @@ async function handleDebugExtraction(
       "debug",
     );
 
-    // Summarize the layer data
     const summary = summarizeLayers(layerTree.rootLayer, 0, 5);
 
-    return {
-      content: [
-        {
-          type: "text",
-          text: `DOM Extraction Debug for ${url}\n\nLayer Tree (max depth 5):\n${summary}\n\nRoot layer dimensions: ${layerTree.width}x${layerTree.height}`,
-        },
-      ],
-    };
+    return successResult(
+      `DOM Extraction Debug for ${url}\n\nLayer Tree (max depth 5):\n${summary}\n\nRoot layer dimensions: ${layerTree.width}x${layerTree.height}`,
+    );
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    return {
-      content: [{ type: "text", text: `Error extracting DOM: ${message}` }],
-      isError: true,
-    };
+    return errorResult(`Error extracting DOM: ${message}`);
   }
-}
-
-// biome-ignore lint/suspicious/noExplicitAny: Need flexible access for debug output
-function summarizeLayers(layer: any, depth: number, maxDepth: number): string {
-  if (depth > maxDepth) return "";
-
-  const indent = "  ".repeat(depth);
-  const fills = layer.fills?.length ?? 0;
-  const strokes = layer.strokes?.length ?? 0;
-  const effects = layer.effects?.length ?? 0;
-
-  let line = `${indent}${layer.name} (${layer.type})`;
-
-  if (layer.type === "TEXT") {
-    const tc = layer.textColor;
-    line += ` - text: "${layer.characters?.slice(0, 20)}..." color: rgb(${(tc?.r * 255).toFixed(0)}, ${(tc?.g * 255).toFixed(0)}, ${(tc?.b * 255).toFixed(0)})`;
-  } else {
-    line += ` - fills: ${fills}, strokes: ${strokes}, effects: ${effects}`;
-    if (fills > 0 && layer.fills[0]?.color) {
-      const c = layer.fills[0].color;
-      line += ` [fill: rgba(${(c.r * 255).toFixed(0)}, ${(c.g * 255).toFixed(0)}, ${(c.b * 255).toFixed(0)}, ${c.a?.toFixed(2) ?? 1})]`;
-    }
-  }
-
-  let result = line + "\n";
-
-  if (layer.children) {
-    for (const child of layer.children) {
-      result += summarizeLayers(child, depth + 1, maxDepth);
-    }
-  }
-
-  return result;
-}
-
-function extractPageName(source: string): string {
-  // Handle file paths like @/app/journey/page.tsx
-  if (source.includes("/")) {
-    const parts = source.split("/");
-    // Find the meaningful part (not page.tsx)
-    const pageIndex = parts.findIndex((p) => p === "page.tsx" || p === "page.ts");
-    if (pageIndex > 0) {
-      return parts[pageIndex - 1];
-    }
-    return parts[parts.length - 1].replace(/\.(tsx?|jsx?)$/, "");
-  }
-  return source;
 }
