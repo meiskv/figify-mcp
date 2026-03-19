@@ -43,6 +43,9 @@ export const NETWORK_IDLE_TIMEOUT = requireInt("NETWORK_IDLE_TIMEOUT", 5_000);
 /** Delay after page load before taking screenshot (milliseconds) */
 export const ANIMATION_SETTLE_DELAY = requireInt("ANIMATION_SETTLE_DELAY", 500);
 
+/** Maximum time for DOM extraction (milliseconds) */
+export const DOM_EXTRACTION_TIMEOUT = requireInt("DOM_EXTRACTION_TIMEOUT", 15_000);
+
 /** Browser device scale factor (DPI multiplier) */
 export const DEVICE_SCALE_FACTOR = requireInt("DEVICE_SCALE_FACTOR", 2);
 
@@ -112,6 +115,7 @@ export const CONFIG = Object.freeze({
   PAGE_LOAD_TIMEOUT,
   NETWORK_IDLE_TIMEOUT,
   ANIMATION_SETTLE_DELAY,
+  DOM_EXTRACTION_TIMEOUT,
   DEVICE_SCALE_FACTOR,
   DEV_SERVER_PORT,
   DEV_SERVER_STARTUP_TIMEOUT,

@@ -1,16 +1,17 @@
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { CallToolRequestSchema, ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
+import { logger } from "./logger.js";
+import { sharedBridge } from "./server-state.js";
 import { DevServerManager } from "./services/dev-server-manager.js";
-import { FigmaBridge } from "./services/figma-bridge.js";
 import { ScreenshotService } from "./services/screenshot-service.js";
 import { type ToolContext, getToolDefinitions, handleToolCall } from "./tools/index.js";
 
 export async function main() {
-  console.error("[figify-mcp] Starting MCP server");
+  logger.info("Starting MCP server");
 
   // Initialize services
-  const figmaBridge = new FigmaBridge();
+  const figmaBridge = sharedBridge;
   const devServerManager = new DevServerManager();
   const screenshotService = new ScreenshotService();
 

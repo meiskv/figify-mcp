@@ -111,3 +111,20 @@ export interface CreateLayersPayload {
   name: string;
   layers: FigmaLayerTree[];
 }
+
+/** Summary info for a single top-level frame returned by list_frames. */
+export interface FigmaFrameInfo {
+  id: string;
+  name: string;
+  width: number;
+  height: number;
+  type: string;
+}
+
+export interface FramesListedPayload {
+  frames: FigmaFrameInfo[];
+  pageId: string;
+  pageName: string;
+  success: boolean;
+  error?: string;
+}

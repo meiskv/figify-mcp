@@ -1,3 +1,4 @@
+import { EventEmitter } from "node:events";
 import { type WebSocket as WS, WebSocket, WebSocketServer } from "ws";
 import {
   FIGMA_REQUEST_TIMEOUT,
@@ -8,11 +9,12 @@ import type {
   FigmaFrameCreatedPayload,
   FigmaLayerTree,
   FigmaMessage,
+  FramesListedPayload,
   LayersCreatedPayload,
   Screenshot,
 } from "../types/index.js";
 
-// Union type so both request kinds share one map and one cleanup path.
+// Union type so all request kinds share one map and one cleanup path.
 type PendingResolve =
   | {
       kind: "frame";
@@ -25,13 +27,25 @@ type PendingResolve =
       resolve: (value: LayersCreatedPayload) => void;
       reject: (error: Error) => void;
       timer: ReturnType<typeof setTimeout>;
+    }
+  | {
+      kind: "list_frames";
+      resolve: (value: FramesListedPayload) => void;
+      reject: (error: Error) => void;
+      timer: ReturnType<typeof setTimeout>;
     };
 
-export class FigmaBridge {
+export interface FigmaBridgeEvents {
+  connect: () => void;
+  disconnect: () => void;
+}
+
+export class FigmaBridge extends EventEmitter {
   private wss: WebSocketServer | null = null;
   private client: WS | null = null;
   private pendingRequests = new Map<string, PendingResolve>();
   private messageId = 0;
+  private connectedAt: Date | null = null;
 
   async start(): Promise<void> {
     return new Promise((resolve, reject) => {
@@ -47,6 +61,8 @@ export class FigmaBridge {
 
           console.error("[FigmaBridge] Figma plugin connected");
           this.client = ws;
+          this.connectedAt = new Date();
+          this.emit("connect");
 
           ws.on("message", (data) => {
             this.handleMessage(data.toString());
@@ -56,6 +72,8 @@ export class FigmaBridge {
             console.error("[FigmaBridge] Figma plugin disconnected");
             if (this.client === ws) {
               this.client = null;
+              this.connectedAt = null;
+              this.emit("disconnect");
             }
           });
 
@@ -109,6 +127,14 @@ export class FigmaBridge {
 
   isConnected(): boolean {
     return this.client !== null && this.client.readyState === WebSocket.OPEN;
+  }
+
+  getConnectionInfo(): { connected: boolean; connectedAt: Date | null; pendingRequests: number } {
+    return {
+      connected: this.isConnected(),
+      connectedAt: this.connectedAt,
+      pendingRequests: this.pendingRequests.size,
+    };
   }
 
   async createFrame(name: string, screenshots: Screenshot[]): Promise<FigmaFrameCreatedPayload> {

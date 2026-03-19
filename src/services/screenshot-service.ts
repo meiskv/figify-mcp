@@ -8,7 +8,9 @@ import {
 } from "../config/constants.js";
 import { getViewport } from "../config/viewports.js";
 import type { FigmaLayerTree, Screenshot, ViewportType } from "../types/index.js";
+import type { FrameLayer, Layer } from "../types/layers.js";
 import { DOMExtractor } from "./dom-extractor.js";
+import { metricsService } from "./metrics.js";
 
 export interface CaptureWithLayersResult {
   layerTree: FigmaLayerTree;
@@ -63,10 +65,16 @@ export class ScreenshotService {
       `[ScreenshotService] Capturing ${viewport.name} (${viewport.width}x${viewport.height}) for ${url}`,
     );
 
+    const timerId = metricsService.startTimer(`capture-${viewportType}`);
     const { page, context, dimensions } = await this.navigatePage(url, viewportType);
 
     try {
       const buffer = await page.screenshot({ fullPage: true, type: "png" });
+
+      metricsService.recordMetric(timerId, "capture_screenshot", "success", {
+        viewport: viewportType,
+        screenshotSize: buffer.length,
+      });
 
       return {
         viewport: viewportType,
@@ -74,6 +82,15 @@ export class ScreenshotService {
         height: dimensions.height,
         data: buffer.toString("base64"),
       };
+    } catch (error) {
+      metricsService.recordMetric(
+        timerId,
+        "capture_screenshot",
+        "failure",
+        { viewport: viewportType },
+        error instanceof Error ? error.message : String(error),
+      );
+      throw error;
     } finally {
       await page.close();
       await context.close();
@@ -95,6 +112,7 @@ export class ScreenshotService {
       `[ScreenshotService] Capturing with layers ${viewport.name} (${viewport.width}x${viewport.height}) for ${url}`,
     );
 
+    const timerId = metricsService.startTimer(`captureWithLayers-${viewportType}`);
     const { page, context, dimensions } = await this.navigatePage(url, viewportType);
 
     try {
@@ -120,11 +138,45 @@ export class ScreenshotService {
         screenshotFallback: screenshot.data,
       };
 
+      // Count layers in the tree
+      const layerCount = this.countLayersInTree(rootLayer);
+
+      metricsService.recordMetric(timerId, "capture_screenshot", "success", {
+        viewport: viewportType,
+        screenshotSize: buffer.length,
+        layerCount,
+      });
+
       return { layerTree, screenshot };
+    } catch (error) {
+      metricsService.recordMetric(
+        timerId,
+        "capture_screenshot",
+        "failure",
+        { viewport: viewportType },
+        error instanceof Error ? error.message : String(error),
+      );
+      throw error;
     } finally {
       await page.close();
       await context.close();
     }
+  }
+
+  /**
+   * Count total layers in a layer tree.
+   */
+  private countLayersInTree(layer: Layer | null | undefined): number {
+    if (!layer) return 0;
+    if (layer.type !== "FRAME") return 1;
+    const frameLayer = layer as FrameLayer;
+    return (
+      1 +
+      frameLayer.children.reduce(
+        (sum: number, child: Layer) => sum + this.countLayersInTree(child),
+        0,
+      )
+    );
   }
 
   /**
@@ -146,21 +198,28 @@ export class ScreenshotService {
 
     const page = await context.newPage();
 
-    await page.goto(url, { waitUntil: "domcontentloaded", timeout: PAGE_LOAD_TIMEOUT });
+    try {
+      await page.goto(url, { waitUntil: "domcontentloaded", timeout: PAGE_LOAD_TIMEOUT });
 
-    // Wait for network idle; acceptable to time out (long-polling pages etc.)
-    await this.waitForNetworkIdle(page);
+      // Wait for network idle; acceptable to time out (long-polling pages etc.)
+      await this.waitForNetworkIdle(page);
 
-    // Allow animations to settle before capturing
-    await page.waitForTimeout(ANIMATION_SETTLE_DELAY);
+      // Allow animations to settle before capturing
+      await page.waitForTimeout(ANIMATION_SETTLE_DELAY);
 
-    // Evaluated inside the browser – document is available there.
-    // Cast because tsconfig targets Node (no DOM lib).
-    const dimensions = (await page.evaluate(
-      "({ width: document.documentElement.scrollWidth, height: document.documentElement.scrollHeight })",
-    )) as { width: number; height: number };
+      // Evaluated inside the browser – document is available there.
+      // Cast because tsconfig targets Node (no DOM lib).
+      const dimensions = (await page.evaluate(
+        "({ width: document.documentElement.scrollWidth, height: document.documentElement.scrollHeight })",
+      )) as { width: number; height: number };
 
-    return { page, context, dimensions };
+      return { page, context, dimensions };
+    } catch (error) {
+      // Ensure cleanup if any step fails
+      await page.close();
+      await context.close();
+      throw error;
+    }
   }
 
   private async waitForNetworkIdle(page: Page): Promise<void> {
