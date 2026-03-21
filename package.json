@@ -10,9 +10,13 @@
   "files": ["dist", "figma-plugin"],
   "scripts": {
     "dev": "tsx watch src/cli.ts",
-    "build": "tsc",
+    "generate:types": "tsx scripts/generate-plugin-types.ts",
+    "build": "npm run generate:types && tsc",
     "start": "node dist/cli.js",
     "server": "node dist/index.js",
+    "test": "vitest",
+    "test:ui": "vitest --ui",
+    "test:coverage": "vitest --coverage",
     "lint": "biome check .",
     "format": "biome format --write .",
     "typecheck": "tsc --noEmit",
@@ -52,8 +56,10 @@
     "@biomejs/biome": "^1.5.0",
     "@types/node": "^20.0.0",
     "@types/ws": "^8.5.0",
+    "@vitest/ui": "^1.0.0",
     "tsx": "^4.7.0",
-    "typescript": "^5.3.0"
+    "typescript": "^5.3.0",
+    "vitest": "^1.0.0"
   },
   "engines": {
     "node": ">=18.0.0"
