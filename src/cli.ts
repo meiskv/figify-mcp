@@ -2,6 +2,7 @@
 
 import * as readline from "node:readline";
 import { logger } from "./logger.js";
+import { sharedBridge } from "./server-state.js";
 import {
   clearScreen,
   colors,
@@ -14,6 +15,7 @@ import {
   displayWarning,
   print,
 } from "./ui.js";
+import { VERSION } from "./version.js";
 
 const c = colors;
 
@@ -69,13 +71,18 @@ async function waitForKey(prompt: string): Promise<string> {
   });
 }
 
+// Alias display functions for brevity
+const showError = displayError;
+const showSuccess = displaySuccess;
+const showWarning = displayWarning;
+const showInfo = displayInfo;
 
 async function showWelcome(): Promise<void> {
   clearScreen();
   print(MASCOT);
   print(BANNER);
   print("");
-  displaySuccess("Welcome to Figify!");
+  showSuccess("Welcome to Figify!");
   print(`  ${c.dim}Your code-to-Figma bridge${c.reset}`);
   print("");
   logger.info("User opened CLI");
@@ -148,22 +155,126 @@ async function showMenu(): Promise<string> {
   return waitForKey(`  ${c.dim}Enter choice:${c.reset} `);
 }
 
-async function startServer(): Promise<void> {
-  print("");
-  displaySuccess("Starting Figify MCP Server...");
-  displayInfo("WebSocket listening on port 19407");
-  displayInfo("Waiting for Figma plugin connection...");
-  print("");
-  print(`  ${c.yellow}Press Ctrl+C to stop${c.reset}`);
-  print("");
+function formatUptime(connectedAt: Date | null): string {
+  if (!connectedAt) return "";
+  const seconds = Math.floor((Date.now() - connectedAt.getTime()) / 1000);
+  if (seconds < 60) return `${seconds}s`;
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes}m ${seconds % 60}s`;
+  const hours = Math.floor(minutes / 60);
+  return `${hours}h ${minutes % 60}m`;
+}
 
+function renderStatusDashboard(serverStartedAt: Date): void {
+  const info = sharedBridge.getConnectionInfo();
+  const now = new Date();
+  const serverUptime = Math.floor((now.getTime() - serverStartedAt.getTime()) / 1000);
+  const serverUptimeStr =
+    serverUptime < 60
+      ? `${serverUptime}s`
+      : serverUptime < 3600
+        ? `${Math.floor(serverUptime / 60)}m ${serverUptime % 60}s`
+        : `${Math.floor(serverUptime / 3600)}h ${Math.floor((serverUptime % 3600) / 60)}m`;
+
+  // Move cursor to top-left without full clear to avoid flicker
+  process.stdout.write("\x1b[H");
+
+  print(BANNER);
+
+  // Status panel
+  const panelWidth = 60;
+  const inner = "─".repeat(panelWidth - 2);
+  print(`${c.cyan}┌${inner}┐${c.reset}`);
+  print(
+    `${c.cyan}│${c.reset}${c.bold}${" ".repeat(22)}Live Status${" ".repeat(25)}${c.reset}${c.cyan}│${c.reset}`,
+  );
+  print(`${c.cyan}├${inner}┤${c.reset}`);
+
+  // MCP Server row
+  const serverLabel = "  MCP Server        ";
+  const serverVal = `${c.green}● Running${c.reset}  uptime: ${c.dim}${serverUptimeStr}${c.reset}`;
+  const serverValVisible = `● Running  uptime: ${serverUptimeStr}`;
+  const serverPad = " ".repeat(
+    Math.max(0, panelWidth - 2 - serverLabel.length - serverValVisible.length),
+  );
+  print(`${c.cyan}│${c.reset}${serverLabel}${serverVal}${serverPad}${c.cyan}│${c.reset}`);
+
+  // WebSocket row
+  const wsLabel = "  WebSocket Port    ";
+  const wsVal = `${c.dim}:19407${c.reset}`;
+  const wsValVisible = ":19407";
+  const wsPad = " ".repeat(Math.max(0, panelWidth - 2 - wsLabel.length - wsValVisible.length));
+  print(`${c.cyan}│${c.reset}${wsLabel}${wsVal}${wsPad}${c.cyan}│${c.reset}`);
+
+  // Figma connection row
+  const figmaLabel = "  Figma Plugin      ";
+  let figmaVal: string;
+  let figmaValVisible: string;
+  if (info.connected) {
+    const uptime = formatUptime(info.connectedAt);
+    figmaVal = `${c.green}● Connected${c.reset}  uptime: ${c.dim}${uptime}${c.reset}`;
+    figmaValVisible = `● Connected  uptime: ${uptime}`;
+  } else {
+    figmaVal = `${c.yellow}○ Waiting for plugin...${c.reset}`;
+    figmaValVisible = "○ Waiting for plugin...";
+  }
+  const figmaPad = " ".repeat(
+    Math.max(0, panelWidth - 2 - figmaLabel.length - figmaValVisible.length),
+  );
+  print(`${c.cyan}│${c.reset}${figmaLabel}${figmaVal}${figmaPad}${c.cyan}│${c.reset}`);
+
+  // Pending requests row (only shown when > 0)
+  if (info.pendingRequests > 0) {
+    const reqLabel = "  Pending Requests  ";
+    const reqVal = `${c.yellow}${info.pendingRequests}${c.reset}`;
+    const reqValVisible = String(info.pendingRequests);
+    const reqPad = " ".repeat(Math.max(0, panelWidth - 2 - reqLabel.length - reqValVisible.length));
+    print(`${c.cyan}│${c.reset}${reqLabel}${reqVal}${reqPad}${c.cyan}│${c.reset}`);
+  } else {
+    // Blank row to keep the box height stable
+    print(`${c.cyan}│${c.reset}${" ".repeat(panelWidth - 2)}${c.cyan}│${c.reset}`);
+  }
+
+  print(`${c.cyan}└${inner}┘${c.reset}`);
+
+  print("");
+  if (!info.connected) {
+    print(`  ${c.dim}Open Figma, run the figify-mcp plugin to connect.${c.reset}`);
+  } else {
+    print(`  ${c.green}Ready — ask Claude to import a page to Figma.${c.reset}    `);
+  }
+  print("");
+  print(`  ${c.dim}Press Ctrl+C to stop the server.${c.reset}              `);
+  // Erase to end of screen in case previous render was taller
+  process.stdout.write("\x1b[J");
+}
+
+async function startServer(): Promise<void> {
   try {
     logger.info("Starting MCP server from CLI");
-    // Import and start the actual server
     const { main } = await import("./index.js");
-    // The main function will take over from here
+
+    // Give the server a moment to bind the WebSocket port
+    await sleep(300);
+
+    const serverStartedAt = new Date();
+
+    // Full clear once at the start to set up the dashboard canvas
+    clearScreen();
+
+    // Render immediately, then on every connect/disconnect event
+    renderStatusDashboard(serverStartedAt);
+
+    sharedBridge.on("connect", () => renderStatusDashboard(serverStartedAt));
+    sharedBridge.on("disconnect", () => renderStatusDashboard(serverStartedAt));
+
+    // Tick every second to keep the uptime counter live
+    const ticker = setInterval(() => renderStatusDashboard(serverStartedAt), 1000);
+
+    // Clean up ticker on process exit
+    process.once("exit", () => clearInterval(ticker));
   } catch (error) {
-    displayError("Failed to start server");
+    showError("Failed to start server");
     if (error instanceof Error) {
       logger.error("Server startup failed", error);
     }
@@ -181,7 +292,7 @@ async function openPluginFolder(): Promise<void> {
     const pluginPath = path.resolve(__dirname, "..", "figma-plugin");
 
     print("");
-    displayInfo(`Opening plugin folder: ${pluginPath}`);
+    showInfo(`Opening plugin folder: ${pluginPath}`);
 
     const platform = process.platform;
     const cmd = platform === "darwin" ? "open" : platform === "win32" ? "explorer" : "xdg-open";
@@ -189,17 +300,17 @@ async function openPluginFolder(): Promise<void> {
     exec(`${cmd} "${pluginPath}"`, (error) => {
       if (error) {
         logger.warn("Could not open folder automatically", error);
-        displayWarning("Could not open folder automatically.");
+        showWarning("Could not open folder automatically.");
         print(`  ${c.dim}Navigate to: ${pluginPath}${c.reset}`);
       } else {
-        displaySuccess("Plugin folder opened");
+        showSuccess("Plugin folder opened");
       }
     });
 
     await sleep(1000);
   } catch (error) {
     logger.error("Failed to open plugin folder", error);
-    displayError("Failed to open plugin folder");
+    showError("Failed to open plugin folder");
   }
 }
 
@@ -267,27 +378,27 @@ try {
   }
 
   if (args.includes("--version") || args.includes("-v")) {
-    print("figify-mcp v1.6.0");
+    print(`figify-mcp v${VERSION}`);
     process.exit(0);
   }
 
   if (args.includes("--server") || args.includes("-s")) {
     // Start server directly without TUI
     logger.info("Starting MCP server from CLI with --server flag");
-    await import("./index.js").catch((error) => {
+    import("./index.js").catch((error) => {
       logger.error("Failed to start server", error);
       process.exit(1);
     });
   } else {
     // Run interactive TUI
-    await runOnboarding().catch((error) => {
+    runOnboarding().catch((error) => {
       logger.error("CLI error", error);
-      displayError("An error occurred in the CLI");
+      showError("An error occurred in the CLI");
       process.exit(1);
     });
   }
 } catch (error) {
   logger.error("Unexpected error", error);
-  displayError("An unexpected error occurred");
+  showError("An unexpected error occurred");
   process.exit(1);
 }

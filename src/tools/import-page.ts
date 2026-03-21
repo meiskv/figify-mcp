@@ -1,53 +1,49 @@
 import { type ImportPageInput, ImportPageInputSchema } from "../registry.js";
-import type { Screenshot, ViewportType } from "../types/index.js";
-import { createErrorResult, extractPageName, requireFigmaConnection } from "./shared.js";
+import type { ViewportType } from "../types/index.js";
+import {
+  checkFigmaConnection,
+  errorResult,
+  extractPageName,
+  parseInput,
+  successResult,
+} from "./shared.js";
 import type { ToolContext, ToolResult } from "./shared.js";
 
 export async function handleImportPage(
   input: ImportPageInput,
   context: ToolContext,
 ): Promise<ToolResult> {
-  const parsed = ImportPageInputSchema.safeParse(input);
-  if (!parsed.success) {
-    return {
-      content: [{ type: "text", text: `Invalid input: ${parsed.error.message}` }],
-      isError: true,
-    };
+  let parsed: { source: string; viewports: ViewportType[]; projectPath?: string };
+  try {
+    parsed = parseInput(ImportPageInputSchema, input) as typeof parsed;
+  } catch (error) {
+    return errorResult(error instanceof Error ? error.message : "Invalid input");
   }
 
-  const { source, viewports, projectPath } = parsed.data;
+  const { source, viewports, projectPath } = parsed;
 
-  const connError = requireFigmaConnection(context);
-  if (connError) return connError;
+  const connCheck = checkFigmaConnection(context.figmaBridge);
+  if (connCheck) return connCheck;
 
   try {
     const url = await context.devServerManager.resolveToUrl(source, projectPath);
-
-    const screenshots: Screenshot[] = [];
-    for (const viewport of viewports as ViewportType[]) {
-      const screenshot = await context.screenshotService.capture(url, viewport);
-      screenshots.push(screenshot);
+    const screenshots = [];
+    for (const viewport of viewports) {
+      screenshots.push(await context.screenshotService.capture(url, viewport));
     }
 
     const pageName = extractPageName(source);
     const result = await context.figmaBridge.createFrame(pageName, screenshots);
 
     if (!result.success) {
-      return {
-        content: [{ type: "text", text: `Failed to create Figma frame: ${result.error}` }],
-        isError: true,
-      };
+      return errorResult(`Failed to create Figma frame: ${result.error}`);
     }
 
-    return {
-      content: [
-        {
-          type: "text",
-          text: `Successfully imported "${pageName}" to Figma!\n\nFrame ID: ${result.frameId}\nViewports: ${viewports.join(", ")}\nScreenshots: ${screenshots.length}`,
-        },
-      ],
-    };
+    return successResult(
+      `Successfully imported "${pageName}" to Figma!\n\nFrame ID: ${result.frameId}\nViewports: ${viewports.join(", ")}\nScreenshots: ${screenshots.length}`,
+    );
   } catch (error) {
-    return createErrorResult(error, "importing page");
+    const message = error instanceof Error ? error.message : String(error);
+    return errorResult(`Error importing page: ${message}`);
   }
 }

@@ -2,7 +2,10 @@ import type { z } from "zod";
 
 /**
  * Convert a Zod schema to a JSON Schema compatible object.
- * This is a simplified implementation that handles common Zod types.
+ *
+ * Handles all Zod types used in this project's registry. If an unrecognised
+ * Zod type is encountered we throw immediately rather than silently emitting
+ * a wrong `{ type: "string" }` fallback.
  */
 export function zodToJsonSchema(schema: z.ZodType): Record<string, unknown> {
   return convertZodType(schema);
@@ -17,47 +20,85 @@ function convertZodType(schema: z.ZodType<any, any, any>): Record<string, unknow
   switch (typeName) {
     case "ZodObject":
       return convertObject(def);
+
     case "ZodString":
-      return { type: "string", description: def.description };
+      return filterUndefined({ type: "string", description: def.description });
+
     case "ZodNumber":
-      return { type: "number", description: def.description };
+      return filterUndefined({ type: "number", description: def.description });
+
     case "ZodBoolean":
-      return { type: "boolean", description: def.description };
+      return filterUndefined({ type: "boolean", description: def.description });
+
     case "ZodArray":
-      return {
+      return filterUndefined({
         type: "array",
         items: convertZodType(def.type),
         description: def.description,
-      };
+      });
+
     case "ZodEnum":
-      return {
+      return filterUndefined({
         type: "string",
         enum: def.values,
         description: def.description,
-      };
+      });
+
+    case "ZodLiteral":
+      return filterUndefined({
+        const: def.value,
+        description: def.description,
+      });
+
+    case "ZodUnion": {
+      // biome-ignore lint/suspicious/noExplicitAny: Zod internals
+      const options = (def.options as z.ZodType<any, any, any>[]).map(convertZodType);
+      return filterUndefined({ oneOf: options, description: def.description });
+    }
+
     case "ZodOptional":
-      return convertZodType(def.innerType);
+      // Preserve description from the wrapper when present
+      return mergeDescription(convertZodType(def.innerType), def.description);
+
+    case "ZodNullable":
+      return mergeDescription(
+        { ...convertZodType(def.innerType), nullable: true },
+        def.description,
+      );
+
     case "ZodDefault":
-      return {
-        ...convertZodType(def.innerType),
-        default: def.defaultValue(),
-      };
+      return mergeDescription(
+        {
+          ...convertZodType(def.innerType),
+          default: def.defaultValue(),
+        },
+        def.description,
+      );
+
+    case "ZodNativeEnum": {
+      const values = Object.values(def.values as Record<string, unknown>).filter(
+        (v) => typeof v === "string" || typeof v === "number",
+      );
+      return filterUndefined({ enum: values, description: def.description });
+    }
+
     default:
-      return { type: "string" };
+      throw new Error(
+        `zodToJsonSchema: unsupported Zod type "${typeName}". Add a case for it in src/utils/zod-to-json-schema.ts.`,
+      );
   }
 }
 
 // biome-ignore lint/suspicious/noExplicitAny: Zod internals
 function convertObject(def: any): Record<string, unknown> {
-  const shape = def.shape();
+  const shape = def.shape() as Record<string, z.ZodType>;
   const properties: Record<string, unknown> = {};
   const required: string[] = [];
 
   for (const [key, value] of Object.entries(shape)) {
-    // biome-ignore lint/suspicious/noExplicitAny: Zod type
-    properties[key] = convertZodType(value as z.ZodType<any, any, any>);
+    properties[key] = convertZodType(value);
 
-    // Check if field is required (not optional and no default)
+    // A field is required when it is neither optional nor has a default value.
     // biome-ignore lint/suspicious/noExplicitAny: Zod internals
     const valueDef = (value as any)._def;
     if (valueDef.typeName !== "ZodOptional" && valueDef.typeName !== "ZodDefault") {
@@ -65,10 +106,25 @@ function convertObject(def: any): Record<string, unknown> {
     }
   }
 
-  return {
+  return filterUndefined({
     type: "object",
     properties,
     required: required.length > 0 ? required : undefined,
     description: def.description,
-  };
+    additionalProperties: def.unknownKeys === "strict" ? false : undefined,
+  });
+}
+
+/** Remove keys whose value is undefined so the JSON output stays clean. */
+function filterUndefined(obj: Record<string, unknown>): Record<string, unknown> {
+  return Object.fromEntries(Object.entries(obj).filter(([, v]) => v !== undefined));
+}
+
+/** Attach a description to an already-converted schema only when one is provided. */
+function mergeDescription(
+  schema: Record<string, unknown>,
+  description: string | undefined,
+): Record<string, unknown> {
+  if (!description) return schema;
+  return { ...schema, description };
 }

@@ -1,8 +1,8 @@
-import { describe, it, expect, beforeEach, vi } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import {
   handleToolCall,
-  requireFigmaConnection,
-  createErrorResult,
+  checkFigmaConnection,
+  errorResult,
   type ToolContext,
   type ToolResult,
 } from "./index.js";
@@ -35,16 +35,16 @@ function createMockContext(connected = true): ToolContext {
 }
 
 describe("Tool Helpers", () => {
-  describe("requireFigmaConnection", () => {
+  describe("checkFigmaConnection", () => {
     it("returns null when Figma is connected", () => {
       const context = createMockContext(true);
-      const result = requireFigmaConnection(context);
+      const result = checkFigmaConnection(context.figmaBridge);
       expect(result).toBeNull();
     });
 
     it("returns error result when Figma is not connected", () => {
       const context = createMockContext(false);
-      const result = requireFigmaConnection(context);
+      const result = checkFigmaConnection(context.figmaBridge);
       expect(result).toBeDefined();
       expect(result?.isError).toBe(true);
       expect(result?.content[0].text).toContain("Figma plugin is not connected");
@@ -52,49 +52,23 @@ describe("Tool Helpers", () => {
 
     it("provides helpful error message", () => {
       const context = createMockContext(false);
-      const result = requireFigmaConnection(context);
+      const result = checkFigmaConnection(context.figmaBridge);
       expect(result?.content[0].text).toContain(
         "Please open Figma and run the figify-mcp plugin first"
       );
     });
   });
 
-  describe("createErrorResult", () => {
-    it("formats error from Error object", () => {
-      const error = new Error("Test error message");
-      const result = createErrorResult(error);
-
+  describe("errorResult", () => {
+    it("creates an error result with the given message", () => {
+      const result = errorResult("Something went wrong");
       expect(result.isError).toBe(true);
-      expect(result.content[0].text).toContain("Error");
-      expect(result.content[0].text).toContain("Test error message");
+      expect(result.content[0].text).toBe("Something went wrong");
     });
 
-    it("includes operation context in error message", () => {
-      const error = new Error("Something went wrong");
-      const result = createErrorResult(error, "test operation");
-
-      expect(result.content[0].text).toContain("[test operation]");
-      expect(result.content[0].text).toMatch(/Error \[test operation\]:/);
-    });
-
-    it("handles string errors", () => {
-      const result = createErrorResult("String error message");
+    it("sets isError to true", () => {
+      const result = errorResult("any error");
       expect(result.isError).toBe(true);
-      expect(result.content[0].text).toContain("String error message");
-    });
-
-    it("handles unknown error types", () => {
-      const result = createErrorResult({ unknown: "object" });
-      expect(result.isError).toBe(true);
-      expect(result.content[0].text).toContain("Error");
-    });
-
-    it("formats error without operation context", () => {
-      const error = new Error("Standalone error");
-      const result = createErrorResult(error);
-
-      expect(result.content[0].text).toMatch(/^Error: /);
-      expect(result.content[0].text).not.toContain("[");
     });
   });
 });

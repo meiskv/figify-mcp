@@ -14,7 +14,7 @@ import { handleImportPage } from "./import-page.js";
 import type { ToolContext, ToolResult } from "./shared.js";
 
 export type { ToolContext, ToolResult };
-export { createErrorResult, requireFigmaConnection } from "./shared.js";
+export { errorResult, checkFigmaConnection } from "./shared.js";
 
 export function getToolDefinitions() {
   return TOOLS.map((tool) => ({

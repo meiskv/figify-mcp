@@ -1,3 +1,4 @@
+import type { z } from "zod";
 import type { DevServerManager } from "../services/dev-server-manager.js";
 import type { FigmaBridge } from "../services/figma-bridge.js";
 import type { ScreenshotService } from "../services/screenshot-service.js";
@@ -13,46 +14,44 @@ export interface ToolResult {
   isError?: boolean;
 }
 
-/**
- * Validates that the Figma plugin is connected.
- * @returns null if connected, or an error ToolResult if not connected
- */
-export function requireFigmaConnection(context: ToolContext): ToolResult | null {
-  if (!context.figmaBridge.isConnected()) {
-    return {
-      content: [
-        {
-          type: "text",
-          text: "Figma plugin is not connected. Please open Figma and run the figify-mcp plugin first.",
-        },
-      ],
-      isError: true,
-    };
+/** Parse input against a Zod schema and throw if invalid. */
+export function parseInput<T>(schema: z.ZodType<T>, input: unknown): T {
+  const result = schema.safeParse(input);
+  if (!result.success) {
+    throw new Error(`Invalid input: ${result.error.message}`);
   }
-  return null;
+  return result.data;
 }
 
-/**
- * Creates a standardized error ToolResult.
- * @param error The error that occurred
- * @param operation Optional context about what operation was being performed
- */
-export function createErrorResult(error: unknown, operation?: string): ToolResult {
-  const errorMessage = error instanceof Error ? error.message : String(error);
-  const context = operation ? ` [${operation}]` : "";
+/** Create an error result. */
+export function errorResult(message: string): ToolResult {
   return {
-    content: [{ type: "text", text: `Error${context}: ${errorMessage}` }],
+    content: [{ type: "text", text: message }],
     isError: true,
   };
 }
 
-/**
- * Extracts a human-readable page name from a file path or URL.
- * e.g. "@/app/journey/page.tsx" → "journey"
- */
+/** Create a success result. */
+export function successResult(text: string): ToolResult {
+  return {
+    content: [{ type: "text", text }],
+  };
+}
+
+/** Check if Figma is connected; return an error result if not, or null if connected. */
+export function checkFigmaConnection(figmaBridge: FigmaBridge): ToolResult | null {
+  if (figmaBridge.isConnected()) return null;
+  return errorResult(
+    "Figma plugin is not connected. Please open Figma and run the figify-mcp plugin first.",
+  );
+}
+
+/** Extract a human-readable page name from a source path or URL. */
 export function extractPageName(source: string): string {
+  // Handle file paths like @/app/journey/page.tsx
   if (source.includes("/")) {
     const parts = source.split("/");
+    // Find the meaningful part (not page.tsx)
     const pageIndex = parts.findIndex((p) => p === "page.tsx" || p === "page.ts");
     if (pageIndex > 0) {
       return parts[pageIndex - 1];
@@ -60,4 +59,42 @@ export function extractPageName(source: string): string {
     return parts[parts.length - 1].replace(/\.(tsx?|jsx?)$/, "");
   }
   return source;
+}
+
+/** Recursively summarize a layer tree for debug output. */
+// biome-ignore lint/suspicious/noExplicitAny: Need flexible access for debug output
+export function summarizeLayers(layer: any, depth: number, maxDepth: number): string {
+  if (depth > maxDepth) return "";
+
+  const indent = "  ".repeat(depth);
+  const fills = layer.fills?.length ?? 0;
+  const strokes = layer.strokes?.length ?? 0;
+  const effects = layer.effects?.length ?? 0;
+
+  let line = `${indent}${layer.name} (${layer.type})`;
+
+  if (layer.type === "TEXT") {
+    const tc = layer.textColor;
+    const r = tc ? (tc.r * 255).toFixed(0) : "?";
+    const g = tc ? (tc.g * 255).toFixed(0) : "?";
+    const b = tc ? (tc.b * 255).toFixed(0) : "?";
+    line += ` - text: "${layer.characters?.slice(0, 20)}..." color: rgb(${r}, ${g}, ${b})`;
+  } else {
+    const layerFills = layer.fills ?? [];
+    line += ` - fills: ${fills}, strokes: ${strokes}, effects: ${effects}`;
+    if (layerFills.length > 0 && layerFills[0]?.color) {
+      const c = layerFills[0].color;
+      line += ` [fill: rgba(${(c.r * 255).toFixed(0)}, ${(c.g * 255).toFixed(0)}, ${(c.b * 255).toFixed(0)}, ${c.a?.toFixed(2) ?? 1})]`;
+    }
+  }
+
+  let result = `${line}\n`;
+
+  if (layer.children) {
+    for (const child of layer.children) {
+      result += summarizeLayers(child, depth + 1, maxDepth);
+    }
+  }
+
+  return result;
 }
