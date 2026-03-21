@@ -34,6 +34,45 @@ export function getToolDefinitions() {
   }));
 }
 
+/**
+ * Validates that the Figma plugin is connected
+ * @returns null if connected, or an error ToolResult if not connected
+ */
+export function requireFigmaConnection(context: ToolContext): ToolResult | null {
+  if (!context.figmaBridge.isConnected()) {
+    return {
+      content: [
+        {
+          type: "text",
+          text: "Figma plugin is not connected. Please open Figma and run the figify-mcp plugin first.",
+        },
+      ],
+      isError: true,
+    };
+  }
+  return null;
+}
+
+/**
+ * Creates a standardized error ToolResult
+ * @param error The error that occurred
+ * @param operation Optional context about what operation was being performed
+ * @returns A formatted error ToolResult
+ */
+export function createErrorResult(error: unknown, operation?: string): ToolResult {
+  const errorMessage = error instanceof Error ? error.message : String(error);
+  const context = operation ? ` [${operation}]` : "";
+  return {
+    content: [
+      {
+        type: "text",
+        text: `Error${context}: ${errorMessage}`,
+      },
+    ],
+    isError: true,
+  };
+}
+
 export async function handleToolCall(
   name: string,
   args: Record<string, unknown>,
@@ -70,17 +109,8 @@ async function handleImportPage(input: ImportPageInput, context: ToolContext): P
   const { source, viewports, projectPath } = parsed.data;
 
   // Check Figma connection first
-  if (!context.figmaBridge.isConnected()) {
-    return {
-      content: [
-        {
-          type: "text",
-          text: "Figma plugin is not connected. Please open Figma and run the figify-mcp plugin first.",
-        },
-      ],
-      isError: true,
-    };
-  }
+  const connError = requireFigmaConnection(context);
+  if (connError) return connError;
 
   try {
     // Resolve URL from source
@@ -113,11 +143,7 @@ async function handleImportPage(input: ImportPageInput, context: ToolContext): P
       ],
     };
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    return {
-      content: [{ type: "text", text: `Error importing page: ${message}` }],
-      isError: true,
-    };
+    return createErrorResult(error, "importing page");
   }
 }
 
@@ -136,17 +162,8 @@ async function handleImportPageAsLayers(
   const { source, viewports, projectPath } = parsed.data;
 
   // Check Figma connection first
-  if (!context.figmaBridge.isConnected()) {
-    return {
-      content: [
-        {
-          type: "text",
-          text: "Figma plugin is not connected. Please open Figma and run the figify-mcp plugin first.",
-        },
-      ],
-      isError: true,
-    };
-  }
+  const connError = requireFigmaConnection(context);
+  if (connError) return connError;
 
   try {
     // Resolve URL from source
@@ -183,11 +200,7 @@ async function handleImportPageAsLayers(
       ],
     };
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    return {
-      content: [{ type: "text", text: `Error importing page as layers: ${message}` }],
-      isError: true,
-    };
+    return createErrorResult(error, "importing page as layers");
   }
 }
 
@@ -235,11 +248,7 @@ async function handleCaptureScreenshot(
       ],
     };
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    return {
-      content: [{ type: "text", text: `Error capturing screenshot: ${message}` }],
-      isError: true,
-    };
+    return createErrorResult(error, "capturing screenshot");
   }
 }
 
@@ -276,16 +285,32 @@ async function handleDebugExtraction(
       ],
     };
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    return {
-      content: [{ type: "text", text: `Error extracting DOM: ${message}` }],
-      isError: true,
-    };
+    return createErrorResult(error, "extracting DOM");
   }
 }
 
-// biome-ignore lint/suspicious/noExplicitAny: Need flexible access for debug output
-function summarizeLayers(layer: any, depth: number, maxDepth: number): string {
+/**
+ * Flexible layer interface for debug output
+ * Includes minimal required properties for layer tree visualization
+ */
+interface DebugLayer {
+  id?: string;
+  name?: string;
+  type?: string;
+  x?: number;
+  y?: number;
+  width?: number;
+  height?: number;
+  characters?: string;
+  textColor?: { r: number; g: number; b: number; a?: number };
+  fills?: Array<{ color: { r: number; g: number; b: number; a?: number } }>;
+  strokes?: Array<{ color: { r: number; g: number; b: number } }>;
+  effects?: Array<unknown>;
+  children?: DebugLayer[];
+  [key: string]: unknown; // Allow additional properties for extensibility
+}
+
+function summarizeLayers(layer: DebugLayer, depth: number, maxDepth: number): string {
   if (depth > maxDepth) return "";
 
   const indent = "  ".repeat(depth);
