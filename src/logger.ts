@@ -12,7 +12,6 @@ export enum LogLevel {
 export interface LoggerConfig {
   level?: LogLevel;
   prefix?: string;
-  verbose?: boolean;
 }
 
 export class Logger {
@@ -22,7 +21,6 @@ export class Logger {
     this.config = {
       level: LogLevel.INFO,
       prefix: "figify",
-      verbose: false,
       ...config,
     };
   }
@@ -45,43 +43,23 @@ export class Logger {
     }
   }
 
-  info(message: string, data?: unknown): void {
+  info(message: string): void {
     console.log(this.formatMessage(LogLevel.INFO, message));
-    if (this.config.verbose && data) {
-      console.log(`  ${c.dim}${JSON.stringify(data, null, 2)}${c.reset}`);
-    }
   }
 
-  warn(message: string, data?: unknown): void {
+  warn(message: string): void {
     console.warn(this.formatMessage(LogLevel.WARN, message));
-    if (this.config.verbose && data) {
-      console.warn(`  ${c.dim}${JSON.stringify(data, null, 2)}${c.reset}`);
-    }
   }
 
   error(message: string, error?: Error | unknown): void {
     console.error(this.formatMessage(LogLevel.ERROR, message));
-    if (error) {
-      if (error instanceof Error) {
-        console.error(`  ${c.dim}${error.message}${c.reset}`);
-        if (this.config.verbose && error.stack) {
-          console.error(`  ${c.dim}${error.stack}${c.reset}`);
-        }
-      } else if (this.config.verbose) {
-        console.error(`  ${c.dim}${JSON.stringify(error, null, 2)}${c.reset}`);
-      }
+    if (error instanceof Error) {
+      console.error(`  ${c.dim}${error.message}${c.reset}`);
     }
   }
 
-  success(message: string, data?: unknown): void {
+  success(message: string): void {
     console.log(this.formatMessage(LogLevel.SUCCESS, message));
-    if (this.config.verbose && data) {
-      console.log(`  ${c.dim}${JSON.stringify(data, null, 2)}${c.reset}`);
-    }
-  }
-
-  setVerbose(verbose: boolean): void {
-    this.config.verbose = verbose;
   }
 
   setLevel(level: LogLevel): void {
