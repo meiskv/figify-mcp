@@ -5,75 +5,68 @@ import { logger } from "./logger.js";
 import { sharedBridge } from "./server-state.js";
 import { DevServerManager } from "./services/dev-server-manager.js";
 import { ScreenshotService } from "./services/screenshot-service.js";
+import { VERSION } from "./version.js";
 import { type ToolContext, getToolDefinitions, handleToolCall } from "./tools/index.js";
 
-export async function main() {
-  logger.info("Starting MCP server");
-
-  // Initialize services
+async function initializeServices(): Promise<ToolContext> {
   const figmaBridge = sharedBridge;
   const devServerManager = new DevServerManager();
   const screenshotService = new ScreenshotService();
 
-  const context: ToolContext = {
-    figmaBridge,
-    devServerManager,
-    screenshotService,
-  };
-
-  // Start WebSocket server for Figma plugin
   await figmaBridge.start();
 
-  // Create MCP server
-  const server = new Server(
-    {
-      name: "figify-mcp",
-      version: "1.0.0",
-    },
-    {
-      capabilities: {
-        tools: {},
-      },
-    },
+  return { figmaBridge, devServerManager, screenshotService };
+}
+
+function createMcpServer(): Server {
+  return new Server(
+    { name: "figify-mcp", version: VERSION },
+    { capabilities: { tools: {} } },
   );
+}
 
-  // Register tool list handler
-  server.setRequestHandler(ListToolsRequestSchema, async () => {
-    return {
-      tools: getToolDefinitions(),
-    };
-  });
+function registerHandlers(server: Server, context: ToolContext): void {
+  server.setRequestHandler(ListToolsRequestSchema, async () => ({
+    tools: getToolDefinitions(),
+  }));
 
-  // Register tool call handler
   server.setRequestHandler(CallToolRequestSchema, async (request) => {
     const { name, arguments: args } = request.params;
-    const result = await handleToolCall(name, args ?? {}, context);
-    return {
-      content: result.content,
-      isError: result.isError,
-    };
+    const { content, isError } = await handleToolCall(name, args ?? {}, context);
+    return { content, isError };
   });
+}
 
-  // Handle shutdown
+function setupSignalHandlers(cleanup: () => Promise<void>): void {
+  process.on("SIGINT", cleanup);
+  process.on("SIGTERM", cleanup);
+}
+
+export async function main(): Promise<void> {
+  logger.info("Starting MCP server");
+
+  const context = await initializeServices();
+  const server = createMcpServer();
+
+  registerHandlers(server, context);
+
   const cleanup = async () => {
-    console.error("[figify-mcp] Shutting down");
-    await screenshotService.close();
-    await devServerManager.stopServer();
-    await figmaBridge.stop();
+    logger.info("Shutting down");
+    await context.screenshotService.close().catch((e) => logger.error("screenshotService.close failed", e));
+    await context.devServerManager.stopServer().catch((e) => logger.error("devServerManager.stopServer failed", e));
+    await context.figmaBridge.stop().catch((e) => logger.error("figmaBridge.stop failed", e));
     process.exit(0);
   };
 
-  process.on("SIGINT", cleanup);
-  process.on("SIGTERM", cleanup);
+  setupSignalHandlers(cleanup);
 
-  // Connect to stdio transport
   const transport = new StdioServerTransport();
   await server.connect(transport);
 
-  console.error("[figify-mcp] MCP server running");
+  logger.info("MCP server running");
 }
 
 main().catch((error) => {
-  console.error("[figify-mcp] Fatal error:", error);
+  logger.error("Fatal error", error);
   process.exit(1);
 });

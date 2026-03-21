@@ -1,101 +1,18 @@
 // Figma plugin code - runs in the Figma sandbox
-
-interface Screenshot {
-  viewport: string;
-  width: number;
-  height: number;
-  data: string; // base64 encoded PNG
-}
-
-interface FigmaColor {
-  r: number;
-  g: number;
-  b: number;
-  a?: number;
-}
-
-interface FigmaFill {
-  type: "SOLID";
-  color: FigmaColor;
-  opacity?: number;
-}
-
-interface FigmaStroke {
-  type: "SOLID";
-  color: FigmaColor;
-}
-
-interface FigmaDropShadow {
-  type: "DROP_SHADOW";
-  color: FigmaColor;
-  offset: { x: number; y: number };
-  radius: number;
-  spread?: number;
-  visible: boolean;
-  blendMode: "NORMAL";
-}
-
-interface BaseLayer {
-  id: string;
-  name: string;
-  type: "FRAME" | "TEXT" | "RECTANGLE";
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-}
-
-interface FrameLayer extends BaseLayer {
-  type: "FRAME";
-  children: Layer[];
-  fills?: FigmaFill[];
-  cornerRadius?: number;
-  strokes?: FigmaStroke[];
-  strokeWeight?: number;
-  effects?: FigmaDropShadow[];
-  // Auto Layout properties
-  layoutMode?: "HORIZONTAL" | "VERTICAL" | "NONE";
-  primaryAxisAlignItems?: "MIN" | "CENTER" | "MAX" | "SPACE_BETWEEN";
-  counterAxisAlignItems?: "MIN" | "CENTER" | "MAX";
-  paddingLeft?: number;
-  paddingRight?: number;
-  paddingTop?: number;
-  paddingBottom?: number;
-  itemSpacing?: number;
-  // Child sizing
-  layoutSizingHorizontal?: "FIXED" | "HUG" | "FILL";
-  layoutSizingVertical?: "FIXED" | "HUG" | "FILL";
-}
-
-interface TextLayer extends BaseLayer {
-  type: "TEXT";
-  characters: string;
-  fontSize: number;
-  fontFamily: string;
-  fontWeight: number;
-  textColor: FigmaColor;
-  textAlign?: "LEFT" | "CENTER" | "RIGHT" | "JUSTIFIED";
-}
-
-interface RectangleLayer extends BaseLayer {
-  type: "RECTANGLE";
-  fills?: FigmaFill[];
-  cornerRadius?: number;
-  strokes?: FigmaStroke[];
-  strokeWeight?: number;
-  effects?: FigmaDropShadow[];
-}
-
-type Layer = FrameLayer | TextLayer | RectangleLayer;
-
-interface FigmaLayerTree {
-  name: string;
-  viewport: string;
-  width: number;
-  height: number;
-  rootLayer: FrameLayer;
-  screenshotFallback?: string;
-}
+// Type definitions are auto-generated from src/types/
+import type {
+  FrameLayer,
+  FigmaLayerTree,
+  Screenshot,
+  Layer,
+  BaseLayer,
+  TextLayer,
+  RectangleLayer,
+  FigmaColor,
+  FigmaFill,
+  FigmaStroke,
+  FigmaDropShadow,
+} from "../types.js";
 
 interface CreateFrameMessage {
   type: "CREATE_FRAME";

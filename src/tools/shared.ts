@@ -1,5 +1,13 @@
 import type { z } from "zod";
+import type { DevServerManager } from "../services/dev-server-manager.js";
 import type { FigmaBridge } from "../services/figma-bridge.js";
+import type { ScreenshotService } from "../services/screenshot-service.js";
+
+export interface ToolContext {
+  figmaBridge: FigmaBridge;
+  devServerManager: DevServerManager;
+  screenshotService: ScreenshotService;
+}
 
 export interface ToolResult {
   content: Array<{ type: "text"; text: string }>;
@@ -67,11 +75,15 @@ export function summarizeLayers(layer: any, depth: number, maxDepth: number): st
 
   if (layer.type === "TEXT") {
     const tc = layer.textColor;
-    line += ` - text: "${layer.characters?.slice(0, 20)}..." color: rgb(${(tc?.r * 255).toFixed(0)}, ${(tc?.g * 255).toFixed(0)}, ${(tc?.b * 255).toFixed(0)})`;
+    const r = tc ? (tc.r * 255).toFixed(0) : "?";
+    const g = tc ? (tc.g * 255).toFixed(0) : "?";
+    const b = tc ? (tc.b * 255).toFixed(0) : "?";
+    line += ` - text: "${layer.characters?.slice(0, 20)}..." color: rgb(${r}, ${g}, ${b})`;
   } else {
+    const layerFills = layer.fills ?? [];
     line += ` - fills: ${fills}, strokes: ${strokes}, effects: ${effects}`;
-    if (fills > 0 && layer.fills[0]?.color) {
-      const c = layer.fills[0].color;
+    if (layerFills.length > 0 && layerFills[0]?.color) {
+      const c = layerFills[0].color;
       line += ` [fill: rgba(${(c.r * 255).toFixed(0)}, ${(c.g * 255).toFixed(0)}, ${(c.b * 255).toFixed(0)}, ${c.a?.toFixed(2) ?? 1})]`;
     }
   }

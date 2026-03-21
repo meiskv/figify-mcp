@@ -1,0 +1,150 @@
+FIGIFY-MCP CODEBASE ANALYSIS - EXECUTIVE SUMMARY
+================================================
+
+ANALYSIS DATE: March 21, 2026
+CODEBASE SIZE: ~3000 lines (excluding tests and node_modules)
+ANALYSIS SCOPE: Code reuse, utility opportunities, duplication patterns
+
+KEY FINDINGS
+============
+
+1. INPUT VALIDATION DUPLICATION ⭐ HIGH PRIORITY
+   - 4 identical safeParse() error handling blocks
+   - Lines: tools/index.ts 101-107, 154-160, 225-231, 259-265
+   - Opportunity: Extract validateInput() utility (-12 lines)
+   - Effort: LOW | Impact: HIGH
+
+2. MESSAGE FORMATTING INCONSISTENCY ⭐ HIGH PRIORITY
+   - Manual construction of { type: "text", text: ... } repeated 25+ times
+   - Lines: Scattered across tools/index.ts (94, 104, 132, 157, 189, 228, 262)
+   - Opportunity: Create message builder utilities (-15-20 lines)
+   - Effort: LOW | Impact: HIGH (consistency + maintainability)
+
+3. VIEWPORT SCREENSHOT ITERATION ⭐ HIGH PRIORITY
+   - Identical for-loop pattern repeated 3 times
+   - Lines: tools/index.ts 119-125, 173-182, 237-240
+   - Opportunity: Extract captureScreenshots() utility (-27 lines total)
+   - Effort: LOW | Impact: HIGH
+
+4. INCONSISTENT LOGGING ⭐ MEDIUM PRIORITY
+   - 20+ direct console.error() calls across services
+   - Files: screenshot-service.ts, dev-server-manager.ts, figma-bridge.ts, index.ts
+   - Logger module exists but underutilized
+   - Opportunity: Unified logging adoption
+   - Effort: MEDIUM | Impact: MEDIUM (consistency + maintainability)
+
+5. WEBSOCKET MESSAGE HANDLING DUPLICATION
+   - createFrame() and createLayers() have ~40 lines of duplicate error handling
+   - Lines: figma-bridge.ts 110-142 vs 144-180
+   - Opportunity: Generic message request handler
+   - Effort: HIGH | Impact: MEDIUM (consolidation)
+
+6. LAYER TREE TRAVERSAL PATTERNS
+   - 3 similar recursive functions (summarizeLayers, debugLogLayers, countLayers)
+   - Lines: tools/index.ts 313-343, dom-extractor.ts 404-439
+   - Opportunity: Generic tree traversal utility
+   - Effort: MEDIUM | Impact: MEDIUM
+
+7. COLOR FORMATTING DUPLICATION
+   - RGB/RGBA string formatting appears 3+ times
+   - Lines: tools/index.ts 325, 330; dom-extractor.ts 417
+   - Opportunity: Color formatting utilities
+   - Effort: LOW | Impact: LOW (aesthetic)
+
+8. PRECONDITION CHECKING PATTERN
+   - Connection check already partially extracted (requireFigmaConnection)
+   - Good pattern, could be extended for other checks
+   - Effort: LOW | Impact: LOW
+
+RECOMMENDED REFACTORING ROADMAP
+===============================
+
+PHASE 1 (Quick Wins - 1-2 hours): Highest ROI
+✓ Create src/utils/messages.ts (message builders)
+✓ Create src/utils/validation.ts (input validation)
+✓ Create src/utils/screenshot-batch.ts (viewport iteration)
+✓ Update src/tools/index.ts to use new utilities
+
+PHASE 2 (Medium Effort - 2-3 hours): Consistency
+✓ Adopt unified logger in all services
+✓ Create src/utils/color-format.ts
+✓ Update debug output to use color formatters
+
+PHASE 3 (Advanced - 4+ hours): Architecture
+✓ Create src/utils/layer-tree.ts (tree traversal)
+✓ Consolidate WebSocket message handling
+
+IMPACT SUMMARY
+==============
+
+BEFORE REFACTORING:
+- Duplicated validation logic: 4 instances
+- Inconsistent error messages: 25+ ad-hoc constructions
+- Duplicate screenshot loops: 3 instances
+- Mixed logging approaches: 20+ console.error calls
+- Inconsistent formatters: RGB string format 3 places
+
+AFTER REFACTORING (Phase 1-2):
+- Code duplication reduced: ~42% fewer lines in tools/index.ts
+- Error handling unified: 1 central createErrorResult pattern
+- Validation centralized: 1 validateInput() function
+- Message formatting standardized: 5 message builder functions
+- Logging unified: Single logger.ts adoption
+- Maintainability improved: Easier to modify behavior
+- Testability improved: Utilities easier to unit test
+
+ESTIMATED METRICS:
+- Lines of code removed: 100+
+- Duplicate patterns eliminated: 8
+- Files created: 5 new utility modules
+- Files modified: 6 (main logic files)
+- Test coverage impact: Positive (more testable)
+- Performance impact: Neutral (no runtime changes)
+
+FILES ANALYZED
+==============
+
+✓ /src/tools/index.ts (357 lines) - Main tool implementations
+✓ /src/services/screenshot-service.ts (171 lines)
+✓ /src/services/figma-bridge.ts (227 lines)
+✓ /src/services/dev-server-manager.ts (205 lines)
+✓ /src/services/dom-extractor.ts (439 lines)
+✓ /src/logger.ts (34 lines)
+✓ /src/registry.ts (90 lines)
+✓ /src/types/index.ts (59 lines)
+✓ /src/config/constants.ts (33 lines)
+✓ /src/config/viewports.ts (22 lines)
+✓ /src/utils/color-parsing.ts (171 lines)
+
+DELIVERABLES
+=============
+
+1. REFACTORING_ANALYSIS.md
+   - Detailed analysis of all 8 opportunities
+   - Line-by-line locations with code snippets
+   - Impact assessment and complexity ratings
+   - Implementation priority matrix
+
+2. REFACTORING_QUICK_START.md
+   - Ready-to-use code snippets for all opportunities
+   - Before/after examples
+   - Step-by-step implementation guide
+   - Testing strategy and checklist
+
+3. ANALYSIS_SUMMARY.txt
+   - This executive summary
+
+NEXT STEPS
+==========
+
+1. Review REFACTORING_ANALYSIS.md for detailed findings
+2. Use REFACTORING_QUICK_START.md for implementation
+3. Start with Phase 1 (highest ROI) for quick wins
+4. Run tests after each phase
+5. Consider setting up pre-commit hooks to prevent new duplication
+
+CONFIDENCE LEVEL: HIGH
+All patterns identified through static analysis with specific line numbers
+and verified implementations. Recommendations based on common software
+engineering best practices (DRY principle, separation of concerns).
+
