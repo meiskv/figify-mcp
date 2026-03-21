@@ -69,32 +69,13 @@ async function waitForKey(prompt: string): Promise<string> {
   });
 }
 
-// Helper function to display error messages during setup
-function showError(message: string): void {
-  displayError(message);
-}
-
-// Helper function to display success messages
-function showSuccess(message: string): void {
-  displaySuccess(message);
-}
-
-// Helper function to display warning messages
-function showWarning(message: string): void {
-  displayWarning(message);
-}
-
-// Helper function to display info messages
-function showInfo(message: string): void {
-  displayInfo(message);
-}
 
 async function showWelcome(): Promise<void> {
   clearScreen();
   print(MASCOT);
   print(BANNER);
   print("");
-  showSuccess("Welcome to Figify!");
+  displaySuccess("Welcome to Figify!");
   print(`  ${c.dim}Your code-to-Figma bridge${c.reset}`);
   print("");
   logger.info("User opened CLI");
@@ -169,9 +150,9 @@ async function showMenu(): Promise<string> {
 
 async function startServer(): Promise<void> {
   print("");
-  showSuccess("Starting Figify MCP Server...");
-  showInfo("WebSocket listening on port 19407");
-  showInfo("Waiting for Figma plugin connection...");
+  displaySuccess("Starting Figify MCP Server...");
+  displayInfo("WebSocket listening on port 19407");
+  displayInfo("Waiting for Figma plugin connection...");
   print("");
   print(`  ${c.yellow}Press Ctrl+C to stop${c.reset}`);
   print("");
@@ -182,7 +163,7 @@ async function startServer(): Promise<void> {
     const { main } = await import("./index.js");
     // The main function will take over from here
   } catch (error) {
-    showError("Failed to start server");
+    displayError("Failed to start server");
     if (error instanceof Error) {
       logger.error("Server startup failed", error);
     }
@@ -200,7 +181,7 @@ async function openPluginFolder(): Promise<void> {
     const pluginPath = path.resolve(__dirname, "..", "figma-plugin");
 
     print("");
-    showInfo(`Opening plugin folder: ${pluginPath}`);
+    displayInfo(`Opening plugin folder: ${pluginPath}`);
 
     const platform = process.platform;
     const cmd = platform === "darwin" ? "open" : platform === "win32" ? "explorer" : "xdg-open";
@@ -208,17 +189,17 @@ async function openPluginFolder(): Promise<void> {
     exec(`${cmd} "${pluginPath}"`, (error) => {
       if (error) {
         logger.warn("Could not open folder automatically", error);
-        showWarning("Could not open folder automatically.");
+        displayWarning("Could not open folder automatically.");
         print(`  ${c.dim}Navigate to: ${pluginPath}${c.reset}`);
       } else {
-        showSuccess("Plugin folder opened");
+        displaySuccess("Plugin folder opened");
       }
     });
 
     await sleep(1000);
   } catch (error) {
     logger.error("Failed to open plugin folder", error);
-    showError("Failed to open plugin folder");
+    displayError("Failed to open plugin folder");
   }
 }
 
@@ -293,20 +274,20 @@ try {
   if (args.includes("--server") || args.includes("-s")) {
     // Start server directly without TUI
     logger.info("Starting MCP server from CLI with --server flag");
-    import("./index.js").catch((error) => {
+    await import("./index.js").catch((error) => {
       logger.error("Failed to start server", error);
       process.exit(1);
     });
   } else {
     // Run interactive TUI
-    runOnboarding().catch((error) => {
+    await runOnboarding().catch((error) => {
       logger.error("CLI error", error);
-      showError("An error occurred in the CLI");
+      displayError("An error occurred in the CLI");
       process.exit(1);
     });
   }
 } catch (error) {
   logger.error("Unexpected error", error);
-  showError("An unexpected error occurred");
+  displayError("An unexpected error occurred");
   process.exit(1);
 }

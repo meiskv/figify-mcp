@@ -6,9 +6,7 @@ import type {
   LayersCreatedPayload,
   Screenshot,
 } from "../types/index.js";
-
-const WEBSOCKET_PORT = 19407;
-const REQUEST_TIMEOUT = 30000; // 30 seconds
+import { CONFIG } from "../config/constants.js";
 
 // Union type so both request kinds share one map and one cleanup path.
 type PendingResolve =
@@ -34,7 +32,7 @@ export class FigmaBridge {
   async start(): Promise<void> {
     return new Promise((resolve, reject) => {
       try {
-        this.wss = new WebSocketServer({ port: WEBSOCKET_PORT });
+        this.wss = new WebSocketServer({ port: CONFIG.websocket.PORT });
 
         this.wss.on("connection", (ws) => {
           // Close any existing connection rather than silently orphaning it.
@@ -63,7 +61,7 @@ export class FigmaBridge {
         });
 
         this.wss.on("listening", () => {
-          console.error(`[FigmaBridge] WebSocket server listening on port ${WEBSOCKET_PORT}`);
+          console.error(`[FigmaBridge] WebSocket server listening on port ${CONFIG.websocket.PORT}`);
           resolve();
         });
 
@@ -125,7 +123,7 @@ export class FigmaBridge {
       const timer = setTimeout(() => {
         this.pendingRequests.delete(id);
         reject(new Error("Request timed out waiting for Figma plugin response"));
-      }, REQUEST_TIMEOUT);
+      }, CONFIG.websocket.REQUEST_TIMEOUT);
 
       this.pendingRequests.set(id, { kind: "frame", resolve, reject, timer });
 
@@ -164,7 +162,7 @@ export class FigmaBridge {
       const timer = setTimeout(() => {
         this.pendingRequests.delete(id);
         reject(new Error("Request timed out waiting for Figma plugin response"));
-      }, REQUEST_TIMEOUT);
+      }, CONFIG.websocket.REQUEST_TIMEOUT);
 
       this.pendingRequests.set(id, { kind: "layers", resolve, reject, timer });
 

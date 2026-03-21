@@ -1,12 +1,8 @@
 import { type ChildProcess, spawn } from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { CONFIG } from "../config/constants.js";
 import type { DevServerInfo } from "../types/index.js";
-
-const DEFAULT_PORT = 3000;
-const SERVER_READY_TIMEOUT = 60000; // 60 seconds
-const POLL_INTERVAL_MS = 1000;
-const READY_SETTLE_DELAY_MS = 1000;
 
 export class DevServerManager {
   private serverProcess: ChildProcess | null = null;
@@ -91,11 +87,11 @@ export class DevServerManager {
    * Ensure a dev server is running for the project.
    */
   async ensureDevServer(projectPath: string): Promise<DevServerInfo> {
-    const externalServer = await this.checkExternalServer(DEFAULT_PORT);
+    const externalServer = await this.checkExternalServer(CONFIG.devServer.DEFAULT_PORT);
     if (externalServer) return externalServer;
 
     if (this.serverProcess && this.currentProjectPath === projectPath) {
-      return { url: `http://localhost:${DEFAULT_PORT}`, port: DEFAULT_PORT, isExternal: false };
+      return { url: `http://localhost:${CONFIG.devServer.DEFAULT_PORT}`, port: CONFIG.devServer.DEFAULT_PORT, isExternal: false };
     }
 
     await this.stopServer();
@@ -150,12 +146,12 @@ export class DevServerManager {
       };
 
       const tryResolve = async () => {
-        const server = await this.checkExternalServer(DEFAULT_PORT);
+        const server = await this.checkExternalServer(CONFIG.devServer.DEFAULT_PORT);
         if (server) {
           settle(() =>
             resolve({
-              url: `http://localhost:${DEFAULT_PORT}`,
-              port: DEFAULT_PORT,
+              url: `http://localhost:${CONFIG.devServer.DEFAULT_PORT}`,
+              port: CONFIG.devServer.DEFAULT_PORT,
               isExternal: false,
             }),
           );
@@ -164,9 +160,9 @@ export class DevServerManager {
 
       const timeoutHandle = setTimeout(() => {
         settle(() => reject(new Error("Dev server startup timed out")));
-      }, SERVER_READY_TIMEOUT);
+      }, CONFIG.devServer.SERVER_READY_TIMEOUT);
 
-      const pollHandle = setInterval(tryResolve, POLL_INTERVAL_MS);
+      const pollHandle = setInterval(tryResolve, CONFIG.devServer.POLL_INTERVAL_MS);
 
       serverProcess.stdout?.on("data", async (data: Buffer) => {
         const output = data.toString();
@@ -174,7 +170,7 @@ export class DevServerManager {
 
         if (output.includes("Ready") || output.includes("localhost:")) {
           // Give the server a moment to fully bind before probing
-          await new Promise((r) => setTimeout(r, READY_SETTLE_DELAY_MS));
+          await new Promise((r) => setTimeout(r, CONFIG.devServer.READY_SETTLE_DELAY_MS));
           tryResolve();
         }
       });

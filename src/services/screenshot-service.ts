@@ -1,11 +1,9 @@
 import type { Browser, Page } from "playwright";
 import { chromium } from "playwright";
+import { CONFIG } from "../config/constants.js";
 import { getViewport } from "../config/viewports.js";
 import type { FigmaLayerTree, FrameLayer, Screenshot, ViewportType } from "../types/index.js";
 import { DOMExtractor } from "./dom-extractor.js";
-
-const PAGE_LOAD_TIMEOUT = 30000; // 30 seconds
-const NETWORK_IDLE_TIMEOUT = 5000; // 5 seconds
 
 export interface CaptureWithLayersResult {
   layerTree: FigmaLayerTree;
@@ -34,56 +32,23 @@ export class ScreenshotService {
   }
 
   async capture(url: string, viewportType: ViewportType): Promise<Screenshot> {
-    await this.initialize();
-
     const viewport = getViewport(viewportType);
     console.error(
       `[ScreenshotService] Capturing ${viewport.name} (${viewport.width}x${viewport.height}) for ${url}`,
     );
 
-    if (!this.browser) {
-      throw new Error("Browser not initialized");
-    }
-
-    const context = await this.browser.newContext({
-      viewport: {
-        width: viewport.width,
-        height: viewport.height,
-      },
-      deviceScaleFactor: 2, // Retina quality
-    });
-
-    const page = await context.newPage();
+    const { context, page } = await this.setupPage(viewportType);
 
     try {
-      // Navigate to the URL
-      await page.goto(url, {
-        waitUntil: "domcontentloaded",
-        timeout: PAGE_LOAD_TIMEOUT,
-      });
-
-      // Wait for network to be idle (no requests for 500ms)
-      await this.waitForNetworkIdle(page);
-
-      // Wait a bit more for any animations to settle
-      await page.waitForTimeout(500);
-
-      // Take full-page screenshot
-      const buffer = await page.screenshot({
-        fullPage: true,
-        type: "png",
-      });
-
-      // Get actual page dimensions after rendering
-      const dimensions = (await page.evaluate(
-        "({ width: document.documentElement.scrollWidth, height: document.documentElement.scrollHeight })",
-      )) as { width: number; height: number };
+      await this.navigateAndWait(page, url);
+      const dimensions = await this.getDimensions(page);
+      const data = await this.takeScreenshot(page);
 
       return {
         viewport: viewportType,
         width: dimensions.width,
         height: dimensions.height,
-        data: buffer.toString("base64"),
+        data,
       };
     } finally {
       await context.close();
@@ -93,12 +58,68 @@ export class ScreenshotService {
   private async waitForNetworkIdle(page: Page): Promise<void> {
     try {
       await page.waitForLoadState("networkidle", {
-        timeout: NETWORK_IDLE_TIMEOUT,
+        timeout: CONFIG.screenshot.NETWORK_IDLE_TIMEOUT,
       });
     } catch {
       // Network idle timeout is acceptable - page might have long-polling
       console.error("[ScreenshotService] Network idle timeout - continuing anyway");
     }
+  }
+
+  /**
+   * Set up a browser context and page with the specified viewport
+   */
+  private async setupPage(viewportType: ViewportType): Promise<{ context: Awaited<ReturnType<Browser["newContext"]>>; page: Page }> {
+    await this.initialize();
+
+    if (!this.browser) {
+      throw new Error("Browser not initialized");
+    }
+
+    const viewport = getViewport(viewportType);
+    const context = await this.browser.newContext({
+      viewport: {
+        width: viewport.width,
+        height: viewport.height,
+      },
+      deviceScaleFactor: CONFIG.screenshot.DEVICE_SCALE_FACTOR,
+    });
+
+    const page = await context.newPage();
+    return { context, page };
+  }
+
+  /**
+   * Navigate to URL and wait for page to load
+   */
+  private async navigateAndWait(page: Page, url: string): Promise<void> {
+    await page.goto(url, {
+      waitUntil: "domcontentloaded",
+      timeout: CONFIG.screenshot.PAGE_LOAD_TIMEOUT,
+    });
+
+    await this.waitForNetworkIdle(page);
+    await page.waitForTimeout(500);
+  }
+
+  /**
+   * Get the rendered page dimensions
+   */
+  private async getDimensions(page: Page): Promise<{ width: number; height: number }> {
+    return (await page.evaluate(
+      "({ width: document.documentElement.scrollWidth, height: document.documentElement.scrollHeight })",
+    )) as { width: number; height: number };
+  }
+
+  /**
+   * Take a screenshot and return as base64
+   */
+  private async takeScreenshot(page: Page): Promise<string> {
+    const buffer = await page.screenshot({
+      fullPage: true,
+      type: "png",
+    });
+    return buffer.toString("base64");
   }
 
   /**
@@ -109,55 +130,28 @@ export class ScreenshotService {
     viewportType: ViewportType,
     pageName: string,
   ): Promise<CaptureWithLayersResult> {
-    await this.initialize();
-
     const viewport = getViewport(viewportType);
     console.error(
       `[ScreenshotService] Capturing with layers ${viewport.name} (${viewport.width}x${viewport.height}) for ${url}`,
     );
 
-    if (!this.browser) {
-      throw new Error("Browser not initialized");
-    }
-
-    const context = await this.browser.newContext({
-      viewport: {
-        width: viewport.width,
-        height: viewport.height,
-      },
-      deviceScaleFactor: 2,
-    });
-
-    const page = await context.newPage();
+    const { context, page } = await this.setupPage(viewportType);
 
     try {
-      await page.goto(url, {
-        waitUntil: "domcontentloaded",
-        timeout: PAGE_LOAD_TIMEOUT,
-      });
-
-      await this.waitForNetworkIdle(page);
-      await page.waitForTimeout(500);
+      await this.navigateAndWait(page, url);
 
       // Extract DOM structure
       const rootLayer = await this.domExtractor.extract(page);
 
-      // Get page dimensions
-      const dimensions = (await page.evaluate(
-        "({ width: document.documentElement.scrollWidth, height: document.documentElement.scrollHeight })",
-      )) as { width: number; height: number };
-
-      // Take fallback screenshot
-      const buffer = await page.screenshot({
-        fullPage: true,
-        type: "png",
-      });
+      // Get page dimensions and screenshot
+      const dimensions = await this.getDimensions(page);
+      const data = await this.takeScreenshot(page);
 
       const screenshot: Screenshot = {
         viewport: viewportType,
         width: dimensions.width,
         height: dimensions.height,
-        data: buffer.toString("base64"),
+        data,
       };
 
       const layerTree: FigmaLayerTree = {
